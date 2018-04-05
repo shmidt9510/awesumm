@@ -1,0 +1,144 @@
+#------------------------------------------------------------------#
+# General input file format                                        #
+#                                                                  #
+# comments start with # till the end of the line                   #
+# string constant are quoted by "..." or '...'                     #
+# boolean can be (T F 1 0 on off) in or without ' or " quotes      #
+# integers are integers                                            #
+# real numbers are whatever (e.g. 1   1.0   1e-23   1.123d-54 )    #
+# vector elements are separated by commas                          #
+# spaces between tokens are not important                          #
+# empty or comment lines are not important                         #
+# order of lines is not important                                  #
+#------------------------------------------------------------------#
+
+file_gen = 'IMEX.'
+#***************************************************************************************
+IC_restart_mode 	= 0    #  0: normal, 1: hard restart, 2: soft restart, 3: from IC 
+IC_filename 		= 'results_old/IMEX.0050.com.res'
+IC_restart_station 	= 1    #  it_start, restart file number to use (NOT iteration!)
+IC_file_fmt 		= 0    # IC data file format (0 - native restart file, 1-netcdf, 2- A.Wray in fourier space, 3-simple binary)
+Data_file_format 	= F    #  T = formatted, F = unformatted
+IC_adapt_grid 		= T    # parameter defaulted to .TRUE. If is set to .FALSE. no grid adaptation is done after the data are read.
+#IC_single_loop       = T
+#IC_repartition      = T
+do_Sequential_run       = F
+#***************************************************************************************
+
+dimension = 2		#  dim (2,3), # of dimensions
+
+coord_min = 0,0, 0.0            #  XMIN, YMIN, ZMIN, etc
+coord_max = 1.0, 1.0   		#  XMAX, YMAX, ZMAX, etc
+
+coord_zone_min = -5e+02, -5e+02		# XMINzone, etc
+coord_zone_max = 5e+02, 5e+02		# XMAXzone, etc
+
+eps_init = 1.0000000e-6  	#  EPS used to adapt initial grid  
+eps_run = 1.0000000e-6  	#  EPS used in run  
+eps_adapt_steps =  0            # eps_adapt_steps ! how many time steps to adapt from eps_init to eps_run
+
+Scale_Meth = 2             	# Scale_Meth !1- Linf, 2-L2
+scl_fltwt = 0.0           	#  scl temporal filter weight, scl_new = scl_fltwt*scl_old + ( 1-scl_fltwt)*scl_new
+j_mn_init = 3             	#  J_mn_init force J_mn == J_INIT while adapting to IC
+j_lev_init = 5             	#  starts adapting IC by having all the points on this level of resolution
+j_IC = 20             	#  J_IC if the IC data does not have dimensions in it then mxyz(:)*2^(j_IC-1) is used
+J_MN = 3             	#  J_MN
+J_MX = 5             	#  J_MX
+j_mn_init = 3           #  J_mn_init force J_mn == J_INIT while adapting to IC
+J_FILT = 20            	#  J_FILT
+
+M_vector = 8,4  	#  Mx, etc
+periodic = 0,0		#  prd(:) (0/1) 0: non-periodic; 1: periodic
+uniform = 0,0		#  grid(:) (0/1) 0: uniform; 1: non-uniform
+
+i_h = 123456      	#  order of boundaries (1-xmin,2-xmax,3-ymin,4-ymax,5-zmin,6-zmax)
+i_l = 1111        	#  algebraic/evolution (1/0) BC order: (lrbt)
+N_predict = 3             	#  N_predict
+N_predict_low_order = 1 # N_predict_low_order
+N_update = 3             	#  N_update
+N_update_low_order = 0  # N_update_low_order
+N_diff = 3             		#  N_diff
+
+IJ_ADJ = 1,1,1		# IJ_ADJ(-1:1) = (coarser level), (same level), (finer level)
+ADJ_type = 1,1,1	#  ADJ_type(-1:1) = (coarser level), (same level), (finer level) # (0 - less conservative, 1 - more conservative)
+
+BNDzone = F	  	#  BNDzone
+BCtype = 0             	#  BCtype (0 - Dirichlet, 1 - Neuman, 2 - Mixed)
+
+
+time_integration_method = 2 # 1=krylov, 2=Crank Nicolson, 3=RK, 4=IMEX
+RKtype = 1                  # 1=RK2, 2=RK2TVD, 3=RK3TVD, 4=RK4
+IMEXtype = 9                # 1=(111)L, 2=(121)L, 3=(122)A(1.0), 4=(233)A(0.732), 5=(232)L, 6=(222)L, 7=(343)L, 8=(443)L, 9=(122)A(1.0)TVD, 10=(232)A(0.5)TVD, 11=(332)LTVD
+                            # (srp) => s=# of implicit steps, r=# of explicit steps, p=order of IMEX method
+                            # A = A-stable method (R_inf follows in parentheses); L = L-stable method (R_inf = 0); TVD = explicit scheme is TVD
+                            # if IMEX is used, user_rhs must be split and be defined for IMEXswitch >=0 and <=0 without using ELSE, or the results of integration will be wrong
+
+t_begin = 1.0000e-03    	#  tbeg  0.2500000e+00
+t_end = 1.0000e-01	#  tend  1.50000e+00
+dt = 5.0000000e-04	    #  dt
+dtmax = 1.0000000e-00 	#  dtmax
+dtmin = 1.0000000e-08 	#  dtmin-if dt < dtmin then exection stops(likely blowing up)
+dtwrite = 1.0000000e-03	#  dtwrite 1.0000000e-02 
+t_adapt = 1.e+10        # when t > t_adapt use an adaptive time step if possible
+	  		# NO time adaptation for RK and IMEX methods
+
+cflmax = 1.0000000e-00 	#  cflmax
+cflmin = 1.0000000e-08 	#  cflmin , Exit if cfl < cflmin
+
+nu = 1.0000000e00  	    #  nu 1.0000000e-03, viscosity
+nu1 = 1.0000000e-02 	#  nu1 5.0000000e-02
+u0 = 0.010000e+00 	    #  u0
+Zero_Mean = F           #  T- enforce zero mean for 1:dim first variables (velocity usually), F- do nothing
+eta = 1.0000000e-04 	#  eta, alpha
+theta = 0.0000000e+01 		#  theta (in degrees) (angle of 2D Burger's equation, ifn=3=> theta is angular velocity)
+theta1 = -4.5000000e+01 	#  theta1 (in degrees) (angle of 2D Burger's equation)
+
+diagnostics_elliptic =  F       #  diagnostics_elliptic: If T print full diagnostic for elliptic solver
+GMRESflag = T              	#  GMRESflag
+BiCGSTABflag = F              	#  BiCGSTABflag
+
+Jacoby_correction = T           # Jacoby_correction
+multigrid_correction = T        # multigrid_correction
+GMRES_correction  = T           # GMRES_correction 
+
+kry_p = 2			#  kry_p
+kry_perturb = 2			#  kry_perturb
+kry_p_coarse = 100           	#  kry_p_coarse
+len_bicgstab = 6             	#  len_bicgstab
+len_bicgstab_coarse = 100	#  len_bicgstab_coarse
+len_iter = 5             	#  len_iter
+
+W0 = 1.0000000e+00 	#  W0 underrelaxation factor for inner V-cycle
+W1 = 1.0000000e+00 	#  W1 underrelaxation factor on the finest level
+W2 = 0.6666666e+00 	#  W2 underrelaxation factor for weighted Jacoby (inner points)
+W3 = 1.0000000e-00 	#  W3 underrelaxation factor for weighted Jacoby (boundary points)
+W_min = 1.00000e-02	#  W_min correcton factor 
+W_max = 1.00000e-00 	#  W_max correction factor 
+
+obstacle = F              	# imask !TRUE  - there is an obstacle defined
+itime = 3   	           	# itime ! 0- Euler first-order, 1- Rotational first-order, 2- Second-order, 3-Semi-implicit second-order
+obstacle_X = 0,0,0 		#  Xo(:)! Location of obstacle
+obstacle_U = 0,0,0		#  Uo(:)! Velocity of obstacle
+obstacle_move = 0,0,0		#  1- Obstacle allowed to move in that direction, else == 0
+
+
+diameter = 1.0		#  d diameter of cylinder as an obstacle
+k_star = 8.7400000e+00 	#  k_star
+m_star = 5.0000000e+00 	#  m_star
+b_star = 0.0000000e-03 	#  b_star
+tol1 = 1.0000000e-08 	#  tol1 used to set tolerence for non-solenoidal half-step
+tol2 = 1.0000000e-08 	#  tol2 used to set tolerence for solenoidal half-step
+tol3 = 1.0000000e-8           #  tol3 used to set tolerence for time step
+tol_gmres = 1.0e-4        #  used to set tolerence for gmres iterative solver
+tol_gmres_stop_if_larger = F  # If true stop iterating in gmres solver if error of last iteration was smaller
+wlog = T              	#  wlog
+
+#------------- case specific parameters
+
+nu  = 1.0          #  heat conduction coefficient
+T_0 = 0.0          #  initial temperature
+T_1 = 1.0          #  temperature at Xmin
+q_1 = 10.0          #  flux at top wall
+source = 0.2, 0.4, 0.0 # source coordinates
+a = 1.             # for Robin BC (a=0 for Neumann)
+

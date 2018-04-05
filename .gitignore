@@ -1,0 +1,10 @@
+*.res
+*.vtk
+*._*
+*.out
+diff*
+*_
+*.o
+*log*
+*user_stats*
+*.err.*
