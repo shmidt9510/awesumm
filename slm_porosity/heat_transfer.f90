@@ -38,6 +38,7 @@ MODULE user_case
   REAL (pr) :: absorb               ! absorptivity
   REAL (pr) :: scanning_speed
   REAL (pr) :: initial_porosity
+  REAL (pr) :: initial_enthalpy
   REAL (pr) :: conductivity_der     ! first derivative of conductivity on temperature
   REAL (pr) :: capacity_der         ! first derivative of capacity on temperature
   REAL (pr), DIMENSION(3) :: x0     ! Initial coordinates of the center of the laser beam
@@ -159,8 +160,11 @@ CONTAINS
     IF (dim.EQ.2) x0(dim) = xyzlimits(1,dim) 
     IF ( IC_restart_mode .EQ. 0 ) THEN
        DO i = 1, nlocal
-          u(i,n_var_enthalpy) = exp(-SUM((x(i,:)-x0)**2))
+          u(i,n_var_enthalpy) = initial_enthalpy*EXP(-SUM((x(i,:)-x0)**2))*EXP(-(x(i,dim)-x0(dim))**2*power*absorb)
        END DO
+       !WHERE (x(:,dim).NE.x0(dim))
+       !   u(:,n_var_enthalpy) = 0
+       !END WHERE
     END IF
 
   END SUBROUTINE user_initial_conditions
@@ -489,6 +493,8 @@ CONTAINS
   call input_real ('absorb', absorb, 'stop')
   call input_real ('scanning_speed', scanning_speed, 'stop')
   call input_real ('initial_porosity', initial_porosity, 'stop')
+  initial_enthalpy = 2*enthalpy_S
+  call input_real ('initial_enthalpy', initial_enthalpy, 'default')
   call input_real ('conductivity_der', conductivity_der, 'stop')
   call input_real ('capacity_der', capacity_der, 'stop')
   call input_real_vector ('x0', x0, 3, 'stop')
@@ -509,15 +515,12 @@ CONTAINS
     IMPLICIT NONE
     REAL (pr), INTENT (IN) ::  t_local
     INTEGER , INTENT(IN) :: flag ! 0- called during adaption to IC, 1 called during main integration loop
-    IF (flag) THEN
-       u(:,n_var_temp) = temperature(u(:,n_var_enthalpy))
-       u(:,n_var_lfrac) = liquid_fraction(u(:,n_var_enthalpy))
-       u(:,n_var_porosity) = porosity(u(:,n_var_enthalpy))
-    ELSE
-       u(:,n_var_temp) = 0.0_pr
-       u(:,n_var_lfrac) = 0.0_pr
+    IF (.NOT.flag) THEN
        u(:,n_var_porosity) = initial_porosity
     END IF
+    u(:,n_var_temp) = temperature(u(:,n_var_enthalpy))
+    u(:,n_var_lfrac) = liquid_fraction(u(:,n_var_enthalpy))
+    u(:,n_var_porosity) = porosity(u(:,n_var_enthalpy))
     u(:,n_var_pressure) = 0.0_pr
   END SUBROUTINE user_additional_vars
 
