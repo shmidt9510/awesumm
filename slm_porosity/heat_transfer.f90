@@ -40,6 +40,7 @@ MODULE user_case
   REAL (pr) :: initial_porosity
   REAL (pr) :: initial_enthalpy
   REAL (pr) :: fusion_smoother                ! half-wide of step
+  REAL (pr) :: fusion_halfpoint                ! x0 of steo
   REAL (pr) :: conductivity_der     ! first derivative of conductivity on temperature
   REAL (pr) :: capacity_der         ! first derivative of capacity on temperature
   REAL (pr), DIMENSION(3) :: x0     ! Initial coordinates of the center of the laser beam
@@ -499,6 +500,8 @@ CONTAINS
     call input_real ('conductivity_der', conductivity_der, 'stop')
     call input_real ('capacity_der', capacity_der, 'stop')
     call input_real_vector ('x0', x0, 3, 'stop')
+    fusion_smoother = 2.65_pr/(fusion_delta+fusion_heat)
+    fusion_halfpoint = 1.0_pr+fusion_heat/2.0_pr
     call input_real ('fusion_smoother', fusion_smoother, 'stop')
 
   END SUBROUTINE user_read_input
@@ -636,7 +639,7 @@ CONTAINS
     REAL (pr) :: liquid_fraction(SIZE(enthalpy))
     ! liquid_fraction = 0.5+1/pi * ATAN(fusion_smoother*(enthalpy-1.2_pr))
 
-    liquid_fraction = 1.0_pr/(1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-1.2_pr)))
+    liquid_fraction = 1.0_pr/(1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))
 
     ! liquid_fraction = (enthalpy - enthalpy_S) / (enthalpy_L - enthalpy_S)
     ! liquid_fraction = MAX(0.0_pr, MIN(1.0_pr, liquid_fraction))
@@ -647,8 +650,8 @@ CONTAINS
     REAL (pr), DIMENSION(:), INTENT(IN) :: enthalpy, Denthalpy
     REAL (pr) :: Dliquid_fraction(SIZE(enthalpy))
     ! Dliquid_fraction = Denthalpy *fusion_smoother/(pi*(fusion_smoother**2*(enthalpy-1.2_pr)**2+1))
-    Dliquid_fraction =  Denthalpy*fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-1.2_pr))&
-      / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-1.2_pr)))**2)
+    Dliquid_fraction =  Denthalpy*fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
+      / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
     ! Dliquid_fraction = 0.0_pr
     ! WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
     ! Dliquid_fraction = Denthalpy / (enthalpy_L - enthalpy_S)
@@ -660,8 +663,8 @@ CONTAINS
     REAL (pr), INTENT(IN) :: enthalpy(:)
     REAL (pr) :: Dliquid_fraction_diag(SIZE(enthalpy))
     ! Dliquid_fraction_diag = fusion_smoother/(pi*(fusion_smoother**2*(enthalpy-1.2_pr)**2+1))
-    Dliquid_fraction_diag = fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-1.2_pr))&
-      / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-1.2_pr)))**2)
+    Dliquid_fraction_diag = fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
+      / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
     ! Dliquid_fraction_diag = 0.0_pr
     ! WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
     ! Dliquid_fraction_diag = 1.0_pr / (enthalpy_L - enthalpy_S)
