@@ -46,10 +46,7 @@ MODULE user_case
   REAL (pr) :: capacity_der         ! first derivative of capacity on temperature
   REAL (pr), DIMENSION(3) :: x0     ! Initial coordinates of the center of the laser beam
 
-  REAL (pr) :: a_step3              !variables for step 2 and 3
-  REAL (pr) :: b_step3
-  REAL (pr) :: c_step3
-  REAL (pr) :: d_step3
+!variables for step 2
   REAL (pr) :: bs_step2
   REAL (pr) :: cs_step2
   REAL (pr) :: ds_step2
@@ -518,18 +515,14 @@ CONTAINS
   fusion_smoother = 2.0_pr/(fusion_delta+fusion_heat) !2.65 old approach 2 new approach
   fusion_halfpoint = 1.0_pr+fusion_heat/2.0_pr
   call input_real ('fusion_smoother', fusion_smoother, 'default')
-  dh_step2 = fusion_heat/10.0_pr
+  dh_step2 = (fusion_heat+fusion_delta)/6.0_pr
   call input_real ('dh_step2', dh_step2, 'default')
-  a_step3 = -2/(enthalpy_L-enthalpy_S)**3
-  b_step3 = (3*(enthalpy_L+enthalpy_S))/(enthalpy_L-enthalpy_S)**3
-  c_step3 = (-6*enthalpy_L*enthalpy_S)/(enthalpy_L-enthalpy_S)**3
-  d_step3 = enthalpy_S**2*(3*enthalpy_L-enthalpy_S)/(enthalpy_L-enthalpy_S)**3
   bs_step2 = 1/(4*dh_step2*(enthalpy_L-enthalpy_S))
   cs_step2 = (dh_step2-enthalpy_S)/(2*dh_step2*(enthalpy_L-enthalpy_S))
   ds_step2 = (enthalpy_S-dh_step2)**2/(4*dh_step2*(enthalpy_L-enthalpy_S))
   bl_step2 = -1/(4*dh_step2*(enthalpy_L-enthalpy_S))
   cl_step2 = (dh_step2+enthalpy_L)/(2*dh_step2*(enthalpy_L-enthalpy_S))
-  dl_step2 = -((enthalpy_L-dh_step2)**2+4*dh_step2*enthalpy_S)/(4*dh_step2*(enthalpy_L-enthalpy_S))
+  dl_step2 = -((enthalpy_L-dh_step2)**2+4.0_pr*dh_step2*enthalpy_S)/(4*dh_step2*(enthalpy_L-enthalpy_S))
   END SUBROUTINE user_read_input
 
 
@@ -670,33 +663,24 @@ CONTAINS
     ELSE IF (step_function.EQ.1) THEN ! piece-wise with C_2 derivative
       liquid_fraction = 0.0_pr
 
-      WHERE (enthalpy_S+dh_step2 < enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+      WHERE (enthalpy_S+dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
         liquid_fraction = (enthalpy - enthalpy_S) / (enthalpy_L - enthalpy_S)
       END WHERE
 
-      WHERE (enthalpy_S+dh_step2 < enthalpy .AND. enthalpy < enthalpy_S-dh_step2)
+      WHERE (enthalpy_S-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_S+dh_step2)
         liquid_fraction = bs_step2*enthalpy**2+cs_step2*enthalpy+ds_step2
       END WHERE
 
-      WHERE (enthalpy_L+dh_step2 < enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+      WHERE (enthalpy_L-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L+dh_step2)
         liquid_fraction = bl_step2*enthalpy**2+cl_step2*enthalpy+dl_step2
       END WHERE
 
-      WHERE (enthalpy.GE.enthalpy_S)
+      WHERE (enthalpy.GE.enthalpy_L+dh_step2)
         liquid_fraction = 1.0_pr
       END WHERE
 
 
-    ELSE IF (step_function.EQ.2) THEN !spline
-      liquid_fraction = 0.0_pr
-      WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
-        liquid_fraction = a_step3*enthalpy**3+b_step3*enthalpy**2+c_step3*enthalpy+d_step3
-      END WHERE
-      WHERE (enthalpy.GE.enthalpy_S)
-        liquid_fraction = 1.0_pr
-      END WHERE
-
-    ELSE IF (step_function.EQ.3) THEN !exponential
+    ELSE IF (step_function.EQ.2) THEN !exponential
           liquid_fraction = 1.0_pr/(1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))
   END IF
   END FUNCTION liquid_fraction
@@ -714,25 +698,19 @@ CONTAINS
       ELSE IF (step_function.EQ.1) THEN ! piece-wise with C_2 derivative
         Dliquid_fraction = 0.0_pr
 
-        WHERE (enthalpy_S+dh_step2 < enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+        WHERE (enthalpy_S+dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
           Dliquid_fraction = Denthalpy / (enthalpy_L - enthalpy_S)
         END WHERE
 
-        WHERE (enthalpy_S+dh_step2 < enthalpy .AND. enthalpy < enthalpy_S-dh_step2)
+        WHERE (enthalpy_S-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_S+dh_step2)
           Dliquid_fraction = Denthalpy*(2*bs_step2*enthalpy+cs_step2)
         END WHERE
 
-        WHERE (enthalpy_L+dh_step2 < enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+        WHERE (enthalpy_L-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L+dh_step2)
           Dliquid_fraction = Denthalpy*(2*bl_step2*enthalpy+cl_step2)
         END WHERE
 
-      ELSE IF (step_function.EQ.2) THEN !spline
-        Dliquid_fraction = 0.0_pr
-        WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
-          Dliquid_fraction = Denthalpy*(3*a_step3*enthalpy**2+2*b_step3*enthalpy+c_step3)
-        END WHERE
-
-      ELSE IF (step_function.EQ.3) THEN !exponential
+      ELSE IF (step_function.EQ.2) THEN !exponential
         Dliquid_fraction =  Denthalpy*fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
         / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
     END IF
@@ -752,24 +730,19 @@ CONTAINS
     ELSE IF (step_function.EQ.1) THEN ! piece-wise with C_2 derivative
       Dliquid_fraction_diag = 0.0_pr
 
-      WHERE (enthalpy_S+dh_step2 < enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+      WHERE (enthalpy_S+dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
         Dliquid_fraction_diag = 1.0_pr / (enthalpy_L - enthalpy_S)
       END WHERE
 
-      WHERE (enthalpy_S+dh_step2 < enthalpy .AND. enthalpy < enthalpy_S-dh_step2)
+      WHERE (enthalpy_S-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_S+dh_step2)
         Dliquid_fraction_diag = (2*bs_step2*enthalpy+cs_step2)
       END WHERE
 
-      WHERE (enthalpy_L+dh_step2 < enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+      WHERE (enthalpy_L-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L+dh_step2)
         Dliquid_fraction_diag = (2*bl_step2*enthalpy+cl_step2)
       END WHERE
-    ELSE IF (step_function.EQ.2) THEN !spline
-      Dliquid_fraction_diag = 0.0_pr
-      WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
-        Dliquid_fraction_diag = 3*a_step3*enthalpy**2+2*b_step3*enthalpy+c_step3
-      END WHERE
 
-    ELSE IF (step_function.EQ.3) THEN !exponential
+    ELSE IF (step_function.EQ.2) THEN !exponential
       Dliquid_fraction_diag = fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
         / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
   END IF
