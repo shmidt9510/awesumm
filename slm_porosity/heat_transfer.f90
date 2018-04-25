@@ -39,11 +39,21 @@ MODULE user_case
   REAL (pr) :: scanning_speed
   REAL (pr) :: initial_porosity
   REAL (pr) :: initial_enthalpy
-  REAL (pr) :: fusion_smoother                ! half-wide of step
-  REAL (pr) :: fusion_halfpoint                ! x0 of steo
+  REAL (pr) :: fusion_smoother      ! half-wide of step
+  REAL (pr) :: fusion_halfpoint     ! point of mean step value
+  REAL (pr) :: step_function     ! choose of step function
   REAL (pr) :: conductivity_der     ! first derivative of conductivity on temperature
   REAL (pr) :: capacity_der         ! first derivative of capacity on temperature
   REAL (pr), DIMENSION(3) :: x0     ! Initial coordinates of the center of the laser beam
+
+!variables for step 2
+  REAL (pr) :: bs_step2
+  REAL (pr) :: cs_step2
+  REAL (pr) :: ds_step2
+  REAL (pr) :: bl_step2
+  REAL (pr) :: cl_step2
+  REAL (pr) :: dl_step2
+  REAL (pr) :: dh_step2
 CONTAINS
 
   !
@@ -503,6 +513,14 @@ CONTAINS
     fusion_smoother = 2.65_pr/(fusion_delta+fusion_heat)
     fusion_halfpoint = 1.0_pr+fusion_heat/2.0_pr
     call input_real ('fusion_smoother', fusion_smoother, 'stop')
+    dh_step2 = (fusion_heat+fusion_delta)/6.0_pr
+    call input_real ('dh_step2', dh_step2, 'default')
+    bs_step2 = 1/(4*dh_step2*(enthalpy_L-enthalpy_S))
+    cs_step2 = (dh_step2-enthalpy_S)/(2*dh_step2*(enthalpy_L-enthalpy_S))
+    ds_step2 = (enthalpy_S-dh_step2)**2/(4*dh_step2*(enthalpy_L-enthalpy_S))
+    bl_step2 = -1/(4*dh_step2*(enthalpy_L-enthalpy_S))
+    cl_step2 = (dh_step2+enthalpy_L)/(2*dh_step2*(enthalpy_L-enthalpy_S))
+    dl_step2 = -((enthalpy_L-dh_step2)**2+4.0_pr*dh_step2*enthalpy_S)/(4*dh_step2*(enthalpy_L-enthalpy_S))
 
   END SUBROUTINE user_read_input
 
@@ -637,38 +655,96 @@ CONTAINS
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
     REAL (pr) :: liquid_fraction(SIZE(enthalpy))
-    ! liquid_fraction = 0.5+1/pi * ATAN(fusion_smoother*(enthalpy-1.2_pr))
+    IF (step_function.EQ.0) THEN !piece-wise with derivative break
+          liquid_fraction = (enthalpy - enthalpy_S) / (enthalpy_L - enthalpy_S)
+          liquid_fraction = MAX(0.0_pr, MIN(1.0_pr, liquid_fraction))
 
-    liquid_fraction = 1.0_pr/(1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))
+    ELSE IF (step_function.EQ.1) THEN ! piece-wise with C_2 derivative
+      liquid_fraction = 0.0_pr
 
-    ! liquid_fraction = (enthalpy - enthalpy_S) / (enthalpy_L - enthalpy_S)
-    ! liquid_fraction = MAX(0.0_pr, MIN(1.0_pr, liquid_fraction))
+      WHERE (enthalpy_S+dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+        liquid_fraction = (enthalpy - enthalpy_S) / (enthalpy_L - enthalpy_S)
+      END WHERE
+
+      WHERE (enthalpy_S-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_S+dh_step2)
+        liquid_fraction = bs_step2*enthalpy**2+cs_step2*enthalpy+ds_step2
+      END WHERE
+
+      WHERE (enthalpy_L-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L+dh_step2)
+        liquid_fraction = bl_step2*enthalpy**2+cl_step2*enthalpy+dl_step2
+      END WHERE
+
+      WHERE (enthalpy.GE.enthalpy_L+dh_step2)
+        liquid_fraction = 1.0_pr
+      END WHERE
+
+
+    ELSE IF (step_function.EQ.2) THEN !exponential
+          liquid_fraction = 1.0_pr/(1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))
+  END IF
   END FUNCTION liquid_fraction
 
   FUNCTION Dliquid_fraction (Denthalpy, enthalpy)
     IMPLICIT NONE
     REAL (pr), DIMENSION(:), INTENT(IN) :: enthalpy, Denthalpy
     REAL (pr) :: Dliquid_fraction(SIZE(enthalpy))
-    ! Dliquid_fraction = Denthalpy *fusion_smoother/(pi*(fusion_smoother**2*(enthalpy-1.2_pr)**2+1))
-    Dliquid_fraction =  Denthalpy*fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
-      / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
-    ! Dliquid_fraction = 0.0_pr
-    ! WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
-    ! Dliquid_fraction = Denthalpy / (enthalpy_L - enthalpy_S)
-    ! END WHERE
+      IF (step_function.EQ.0) THEN !piece-wise with derivative break
+          Dliquid_fraction = 0.0_pr
+          WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
+          Dliquid_fraction = Denthalpy / (enthalpy_L - enthalpy_S)
+          END WHERE
+
+      ELSE IF (step_function.EQ.1) THEN ! piece-wise with C_2 derivative
+        Dliquid_fraction = 0.0_pr
+
+        WHERE (enthalpy_S+dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+          Dliquid_fraction = Denthalpy / (enthalpy_L - enthalpy_S)
+        END WHERE
+
+        WHERE (enthalpy_S-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_S+dh_step2)
+          Dliquid_fraction = Denthalpy*(2*bs_step2*enthalpy+cs_step2)
+        END WHERE
+
+        WHERE (enthalpy_L-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L+dh_step2)
+          Dliquid_fraction = Denthalpy*(2*bl_step2*enthalpy+cl_step2)
+        END WHERE
+
+      ELSE IF (step_function.EQ.2) THEN !exponential
+        Dliquid_fraction =  Denthalpy*fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
+        / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
+    END IF
   END FUNCTION Dliquid_fraction
 
   FUNCTION Dliquid_fraction_diag (enthalpy)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
     REAL (pr) :: Dliquid_fraction_diag(SIZE(enthalpy))
-    ! Dliquid_fraction_diag = fusion_smoother/(pi*(fusion_smoother**2*(enthalpy-1.2_pr)**2+1))
-    Dliquid_fraction_diag = fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
-      / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
-    ! Dliquid_fraction_diag = 0.0_pr
-    ! WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
-    ! Dliquid_fraction_diag = 1.0_pr / (enthalpy_L - enthalpy_S)
-    ! END WHERE
+
+    IF (step_function.EQ.0) THEN !piece-wise with derivative break
+      Dliquid_fraction_diag = 0.0_pr
+      WHERE (enthalpy_S < enthalpy .AND. enthalpy < enthalpy_L)
+      Dliquid_fraction_diag = 1.0_pr / (enthalpy_L - enthalpy_S)
+      END WHERE
+
+    ELSE IF (step_function.EQ.1) THEN ! piece-wise with C_2 derivative
+      Dliquid_fraction_diag = 0.0_pr
+
+      WHERE (enthalpy_S+dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L-dh_step2)
+        Dliquid_fraction_diag = 1.0_pr / (enthalpy_L - enthalpy_S)
+      END WHERE
+
+      WHERE (enthalpy_S-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_S+dh_step2)
+        Dliquid_fraction_diag = (2*bs_step2*enthalpy+cs_step2)
+      END WHERE
+
+      WHERE (enthalpy_L-dh_step2.LE.enthalpy .AND. enthalpy < enthalpy_L+dh_step2)
+        Dliquid_fraction_diag = (2*bl_step2*enthalpy+cl_step2)
+      END WHERE
+
+    ELSE IF (step_function.EQ.2) THEN !exponential
+      Dliquid_fraction_diag = fusion_smoother*2.0_pr*EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint))&
+        / ((1.0_pr+EXP(-2.0_pr*fusion_smoother*(enthalpy-fusion_halfpoint)))**2)
+  END IF
   END FUNCTION Dliquid_fraction_diag
 
   FUNCTION porosity (enthalpy)
