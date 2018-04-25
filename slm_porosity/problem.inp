@@ -73,7 +73,7 @@ IMEXtype = 9                # 1=(111)L, 2=(121)L, 3=(122)A(1.0), 4=(233)A(0.732)
                             # if IMEX is used, user_rhs must be split and be defined for IMEXswitch >=0 and <=0 without using ELSE, or the results of integration will be wrong
 
 t_begin = 0    	#  tbeg  0.2500000e+00
-t_end = 30	#  tend  1.50000e+00
+t_end = 1e-3	#  tend  1.50000e+00
 dt = 1e-5	    #  dt
 dtmax = 1 	#  dtmax
 dtmin = 1e-7 	#  dtmin-if dt < dtmin then exection stops(likely blowing up)
@@ -136,7 +136,7 @@ absorb = 0.3                    #  absorptivity
 scanning_speed = 9.076e-01
 initial_porosity = 0.4
 conductivity_der = 1.329e+00
-capacity_der = 5.671e-01
+capacity_der = 5.672e-01
 x0 = 0, 0, 0                    #  starting point of the center of the laser beam
-fusion_smoother = 6             #6 exp #15.54 atan
-
+step_function = 3               # choose step function 0 - C0; 1 - C1 spline piecewise; 2 - C1 spline; 3 - exp Cinf;
+#fusion_smoother = 6             #6 exp #15.54 atan
