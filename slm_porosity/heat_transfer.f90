@@ -13,7 +13,7 @@ MODULE user_case
   USE util_vars
   USE share_consts
   USE pde
-  USE variable_mapping 
+  USE variable_mapping
   USE sizes
   USE share_kry
   USE vector_util_mod
@@ -53,13 +53,13 @@ CONTAINS
   !
   !
   ! n_integrated     ! first n_integrated eqns will be acted on for time integration
-  ! n_var_additional ! 
+  ! n_var_additional !
   ! n_var
   !
   !
   !
   !
-  SUBROUTINE  user_setup_pde ( VERB ) 
+  SUBROUTINE  user_setup_pde ( VERB )
     USE variable_mapping
     IMPLICIT NONE
     LOGICAL, OPTIONAL :: VERB         ! debug info
@@ -104,19 +104,19 @@ CONTAINS
     CALL setup_mapping()
     CALL print_variable_registery( FULL=.TRUE.)
 
-    n_var_pressure  = get_index('pressure ')  
-    n_var_temp      = get_index('temperature')  
-    n_var_enthalpy  = get_index('enthalpy')  
-    n_var_lfrac     = get_index('liquid_fraction')  
-    n_var_porosity  = get_index('porosity')  
+    n_var_pressure  = get_index('pressure ')
+    n_var_temp      = get_index('temperature')
+    n_var_enthalpy  = get_index('enthalpy')
+    n_var_lfrac     = get_index('liquid_fraction')
+    n_var_porosity  = get_index('porosity')
 
     ALLOCATE ( Umn(1:n_var) )
     Umn = 0.0_pr !set up here if mean quantities are not zero and used in scales or equation
 
     IF (verb_level.GT.0) THEN
-       PRINT *, 'n_integrated = ',n_integrated 
-       PRINT *, 'n_var = ',n_var 
-       PRINT *, 'n_var_exact = ',n_var_exact 
+       PRINT *, 'n_integrated = ',n_integrated
+       PRINT *, 'n_var = ',n_var
+       PRINT *, 'n_var_exact = ',n_var_exact
        PRINT *, '*******************Variable Names*******************'
        DO i = 1,n_var
           WRITE (*, u_variable_names_fmt) u_variable_names(i)
@@ -129,12 +129,12 @@ CONTAINS
   ! Set the exact solution for comparison to the simulated solution
   !
   ! u          - array to fill in the exact solution
-  ! nlocal       - number of active wavelets   
+  ! nlocal       - number of active wavelets
   ! ne_local        - total number of equations
-  ! t          - time of current time step 
-  ! l_n_var_exact_soln_index - index into the elements of u for which we need to 
+  ! t          - time of current time step
+  ! l_n_var_exact_soln_index - index into the elements of u for which we need to
   !                            find the exact solution
-  SUBROUTINE  user_exact_soln (u, nlocal,  t_local, l_n_var_exact_soln)  
+  SUBROUTINE  user_exact_soln (u, nlocal,  t_local, l_n_var_exact_soln)
     IMPLICIT NONE
     INTEGER , INTENT (IN) :: nlocal
     REAL (pr), INTENT (IN) ::  t_local
@@ -157,7 +157,7 @@ CONTAINS
     REAL (pr) :: t_zero
     INTEGER :: i
 
-    IF (dim.EQ.2) x0(dim) = xyzlimits(1,dim) 
+    IF (dim.EQ.2) x0(dim) = xyzlimits(1,dim)
     IF ( IC_restart_mode .EQ. 0 ) THEN
        DO i = 1, nlocal
           u(i,n_var_enthalpy) = initial_enthalpy*EXP(-SUM((x(i,:)-x0)**2))*EXP(-(x(i,dim)-x0(dim))**2*power*absorb)
@@ -169,7 +169,7 @@ CONTAINS
 
   END SUBROUTINE user_initial_conditions
 
-!--********************************  
+!--********************************
   ! Arguments
   ! u         - field on adaptive grid
   ! nlocal      - number of active points
@@ -181,7 +181,7 @@ CONTAINS
   ! x()
   ! xO
   ! y0
-  !--******************************** 
+  !--********************************
   SUBROUTINE user_algebraic_BC (Lu, u, nlocal, ne_local, jlev, meth)
     IMPLICIT NONE
     INTEGER , INTENT (IN) :: jlev, meth, ne_local, nlocal
@@ -233,7 +233,7 @@ CONTAINS
     INTEGER, DIMENSION(0:dim) :: i_p_face
     INTEGER, DIMENSION(dim) :: face
     INTEGER, DIMENSION(nwlt) :: iloc
-    
+
     CALL c_diff_diag (du, d2u, jlev, nlocal, meth, meth, 10)
 
     DO ie = 1, ne_local
@@ -247,7 +247,7 @@ CONTAINS
           IF( ANY( face(1:dim) /= 0) .AND. ie == n_var_enthalpy ) THEN
              CALL get_all_indices_by_face (face_type, jlev, nloc, iloc)
              iloc(1:nloc) = shift + iloc(1:nloc)
-             IF( nloc > 0 ) THEN 
+             IF( nloc > 0 ) THEN
                 IF( face(dim) < 0 ) THEN    ! z=0 face
                    ones = 1.0_pr
                    CALL my_bc(Lu_diag, ones, du, temperature(u_prev_timestep), nloc, iloc)
@@ -261,7 +261,7 @@ CONTAINS
        END DO
     END DO
     !PRINT *, 'user_algebraic_BC_diag', Lu_diag(shift+iloc(1:nloc))
- 
+
   END SUBROUTINE user_algebraic_BC_diag
 
   SUBROUTINE user_algebraic_BC_rhs (rhs, ne_local, nlocal, jlev)
@@ -289,7 +289,7 @@ CONTAINS
           IF( ANY( face(1:dim) /= 0) .AND. ie == n_var_enthalpy ) THEN
              CALL get_all_indices_by_face (face_type, jlev, nloc, iloc)
              iloc(1:nloc) = shift + iloc(1:nloc)
-             IF( nloc > 0 ) THEN 
+             IF( nloc > 0 ) THEN
                 IF( face(dim) < 0 ) THEN    ! z=0 face
                    IF( dim == 3 ) THEN
                       rhs(iloc(1:nloc)) = -exp(-(x(iloc(1:nloc), 1) - scanning_speed*t - x0(1))**2 - (x(iloc(1:nloc), 2) - x0(2))**2 ) / pi
@@ -453,7 +453,7 @@ CONTAINS
   SUBROUTINE user_stats ( u ,j_mn, startup_flag)
     IMPLICIT NONE
     INTEGER , INTENT (IN) :: startup_flag
-    INTEGER , INTENT (IN) :: j_mn 
+    INTEGER , INTENT (IN) :: j_mn
     REAL (pr), DIMENSION (nwlt,1:n_var), INTENT (IN) :: u
   END SUBROUTINE user_stats
 
@@ -480,7 +480,7 @@ CONTAINS
   ! Read input from "case_name"_pde.inp file
   ! case_name is in string file_name read from command line
   ! in read_command_line_input()
-  ! 
+  !
   SUBROUTINE user_read_input()
     IMPLICIT NONE
 
@@ -505,8 +505,8 @@ CONTAINS
 
   !
   ! calculate any additional variables
-  ! 
-  ! arg 
+  !
+  ! arg
   ! flag  - 0 calledwhile adapting to IC, 1 - called in main time integration loop
   !
   ! These additional variables are calculated and left in real space.
@@ -527,8 +527,8 @@ CONTAINS
 
   !
   ! calculate any additional scalar variables
-  ! 
-  ! arg 
+  !
+  ! arg
   ! flag  - 0 calledwhile adapting to IC, 1 - called in main time integration loop
   !
   SUBROUTINE user_scalar_vars( flag )
@@ -544,7 +544,7 @@ CONTAINS
   !
   ! Note the order of the components in the scl array
   ! correspond to u_tn, v_tn, w_tn, u_tn-1, v_tn-1, w_tn-1, u_tn-2, v_tn-2, w_tn-2
-  ! 
+  !
   SUBROUTINE user_scales(flag, use_default, u, nlocal, ne_local, l_n_var_adapt , l_n_var_adapt_index, &
        scl, scl_fltwt) !add
     IMPLICIT NONE
@@ -560,7 +560,7 @@ CONTAINS
     !
     ! Ignore the output of this routine and use default scales routine
     !
-    use_default = .TRUE. 
+    use_default = .TRUE.
 
     !
     ! NOTE: For a parallel run, synchronize scl(:) across the processors in user_scales.
@@ -580,7 +580,7 @@ CONTAINS
     INTEGER                    :: i
     REAL (pr), DIMENSION (dim) :: cfl
     REAL (pr), DIMENSION(dim,nwlt) :: h_arr
-  
+
     use_default = .FALSE.
     CALL get_all_local_h (h_arr)
     cfl_out = MAXVAL(dt/h_arr(1,:)*scanning_speed)
@@ -589,45 +589,45 @@ CONTAINS
        cfl(1:dim) = ABS (u(i,1:dim)+Umn(1:dim)) * dt/h_arr(1:dim,i)
        cfl_out = MAX (cfl_out, MAXVAL(cfl))
     END DO
-  
+
   !  cfl_out = 1.0_pr ! no CFL condition
     IF (u(1,1).NE.u(1,1)) THEN
       PRINT *, '--- INFINITE ---'
       CALL ABORT
     END IF
-  
+
   END SUBROUTINE user_cal_cfl
-  
+
   SUBROUTINE user_init_sgs_model( )
     IMPLICIT NONE
   END SUBROUTINE user_init_sgs_model
-  
+
   SUBROUTINE  user_sgs_force (u_loc, nlocal)
     IMPLICIT NONE
     INTEGER, INTENT (IN) :: nlocal
     REAL (pr), DIMENSION (nlocal,n_integrated), INTENT (INOUT) :: u_loc
   END SUBROUTINE  user_sgs_force
-  
+
   FUNCTION user_sound_speed (u, neq, nwlt)
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: nwlt, neq
     REAL (pr), DIMENSION (nwlt,neq), INTENT(IN) :: u
     REAL (pr), DIMENSION (nwlt) :: user_sound_speed
-  
-    user_sound_speed(:) = 0.0_pr 
+
+    user_sound_speed(:) = 0.0_pr
     !user_sound_speed(:) = SQRT( gamma*(gamma-1.0_pr)* &
     !       ( u(:,4)-0.5_pr*SUM(u(:,n_var_mom(1:dim))**2,DIM=2)/u(:,1)) ) ! pressure
-  
+
   END FUNCTION user_sound_speed
-  
+
   SUBROUTINE  user_pre_process
     IMPLICIT NONE
   END SUBROUTINE user_pre_process
-  
+
   SUBROUTINE  user_post_process
     IMPLICIT NONE
   END SUBROUTINE user_post_process
-  
+
   FUNCTION liquid_fraction (enthalpy)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
@@ -635,7 +635,7 @@ CONTAINS
     liquid_fraction = (enthalpy - enthalpy_S) / (enthalpy_L - enthalpy_S)
     liquid_fraction = MAX(0.0_pr, MIN(1.0_pr, liquid_fraction))
   END FUNCTION liquid_fraction
-  
+
   FUNCTION Dliquid_fraction (Denthalpy, enthalpy)
     IMPLICIT NONE
     REAL (pr), DIMENSION(:), INTENT(IN) :: enthalpy, Denthalpy
@@ -645,7 +645,7 @@ CONTAINS
         Dliquid_fraction = Denthalpy / (enthalpy_L - enthalpy_S)
     END WHERE
   END FUNCTION Dliquid_fraction
-  
+
   FUNCTION Dliquid_fraction_diag (enthalpy)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
@@ -655,34 +655,34 @@ CONTAINS
         Dliquid_fraction_diag = 1.0_pr / (enthalpy_L - enthalpy_S)
     END WHERE
   END FUNCTION Dliquid_fraction_diag
-  
+
   FUNCTION porosity (enthalpy)
     IMPLICIT NONE
-    REAL (pr), INTENT(IN) :: enthalpy(:) 
+    REAL (pr), INTENT(IN) :: enthalpy(:)
     REAL (pr) :: porosity(SIZE(enthalpy))
     porosity = MAX(0.0_pr, MIN(u(:,n_var_porosity), initial_porosity*(1.0_pr - liquid_fraction(enthalpy))))
   END FUNCTION porosity
-  
+
   FUNCTION porosity_term ()
     IMPLICIT NONE
     REAL (pr) :: porosity_term(nwlt)
     porosity_term = (1.0_pr - u(:,n_var_porosity)) / (1.0_pr - initial_porosity)
   END FUNCTION porosity_term
-  
+
   PURE FUNCTION conductivity (temperature)
     IMPLICIT NONE
-    REAL (pr), INTENT(IN) :: temperature(:) 
+    REAL (pr), INTENT(IN) :: temperature(:)
     REAL (pr) :: conductivity(SIZE(temperature))
     conductivity = 1.0_pr + conductivity_der*temperature
   END FUNCTION conductivity
-  
+
   PURE FUNCTION capacity (temperature)
     IMPLICIT NONE
-    REAL (pr), INTENT(IN) :: temperature(:) 
+    REAL (pr), INTENT(IN) :: temperature(:)
     REAL (pr) :: capacity(SIZE(temperature))
     capacity = 1.0_pr + 2*capacity_der*temperature
   END FUNCTION capacity
-  
+
   FUNCTION temperature (enthalpy)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
@@ -694,7 +694,7 @@ CONTAINS
         temperature = (SQRT(1.0_pr + 4*capacity_der*enthalpy_fusion(enthalpy)) - 1.0_pr)/2/capacity_der
     END IF
   END FUNCTION temperature
-  
+
   FUNCTION linearized_temperature (enthalpy, enthalpy_prev)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:), enthalpy_prev(:)
@@ -702,7 +702,7 @@ CONTAINS
     linearized_temperature = enthalpy_fusion(enthalpy) / &
         (1.0_pr + 2*capacity_der*temperature(enthalpy_prev))
   END FUNCTION linearized_temperature
-  
+
   FUNCTION linearized_temperature_diag (enthalpy_prev)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy_prev(:)
@@ -710,7 +710,7 @@ CONTAINS
     linearized_temperature_diag = Denthalpy_fusion_diag(enthalpy_prev) / &
         (1.0_pr + 2*capacity_der*temperature(enthalpy_prev))
   END FUNCTION linearized_temperature_diag
-  
+
   FUNCTION linearized_temperature_rhs (enthalpy_prev)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy_prev(:)
@@ -718,21 +718,21 @@ CONTAINS
     linearized_temperature_rhs = - temperature(enthalpy_prev) + enthalpy_fusion(enthalpy_prev) / &
         (1.0_pr + 2*capacity_der*temperature(enthalpy_prev))
   END FUNCTION linearized_temperature_rhs
-  
+
   FUNCTION enthalpy_fusion (enthalpy)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
     REAL (pr) :: enthalpy_fusion(SIZE(enthalpy))
     enthalpy_fusion = enthalpy - fusion_heat*liquid_fraction(enthalpy)
   END FUNCTION enthalpy_fusion
-  
+
   FUNCTION Denthalpy_fusion (Denthalpy, enthalpy)
     IMPLICIT NONE
     REAL (pr), DIMENSION (:), INTENT(IN) :: Denthalpy, enthalpy
     REAL (pr) :: Denthalpy_fusion(SIZE(enthalpy))
     Denthalpy_fusion = Denthalpy - fusion_heat*Dliquid_fraction(Denthalpy, enthalpy)
   END FUNCTION Denthalpy_fusion
-  
+
   FUNCTION Denthalpy_fusion_diag (enthalpy)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
