@@ -489,22 +489,23 @@ CONTAINS
 
     call input_real ('fusion_delta', fusion_delta, 'stop')
     call input_real ('fusion_heat', fusion_heat, 'stop')
-    enthalpy_S = 1.0_pr - fusion_delta/2
-    enthalpy_L = 1.0_pr + fusion_delta/2 + fusion_heat
-    lf_der = 1.0_pr/(enthalpy_L - enthalpy_S)
     call input_real ('convective_transfer', convective_transfer, 'stop')
     call input_real ('power', power, 'stop')
     call input_real ('absorb', absorb, 'stop')
     call input_real ('scanning_speed', scanning_speed, 'stop')
     call input_real ('initial_porosity', initial_porosity, 'stop')
-    initial_enthalpy = 2*enthalpy_S
-    call input_real ('initial_enthalpy', initial_enthalpy, 'default')
+    call input_real ('initial_enthalpy', initial_enthalpy, 'stop')
     call input_real ('conductivity_der', conductivity_der, 'stop')
     call input_real ('capacity_der', capacity_der, 'stop')
-    call input_integer ('smoothing_method', smoothing_method, 'stop')
+    call input_real ('smoothing_width', smoothing_width, 'stop')
+
     call input_real_vector ('x0', x0, 3, 'stop')
-    smoothing_width = 0.25_pr
-    call input_real ('smoothing_width', smoothing_width, 'default')
+
+    call input_integer ('smoothing_method', smoothing_method, 'stop')
+
+    enthalpy_S = 1.0_pr - fusion_delta/2
+    enthalpy_L = 1.0_pr + fusion_delta/2 + fusion_heat
+    lf_der = 1.0_pr/(enthalpy_L - enthalpy_S)
 
   END SUBROUTINE user_read_input
 
