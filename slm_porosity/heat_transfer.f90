@@ -41,6 +41,7 @@ MODULE user_case
   REAL (pr) :: smoothing_width      ! width of spline in terms of fusion_delta
   REAL (pr) :: conductivity_der     ! first derivative of conductivity on temperature
   REAL (pr) :: capacity_der         ! first derivative of capacity on temperature
+  REAL (pr) :: conductivity_drop    ! drop of conductivity in liquid form
   REAL (pr), DIMENSION(3) :: x0     ! Initial coordinates of the center of the laser beam
 CONTAINS
 
@@ -494,7 +495,7 @@ CONTAINS
     call input_real ('conductivity_der', conductivity_der, 'stop')
     call input_real ('capacity_der', capacity_der, 'stop')
     call input_real ('smoothing_width', smoothing_width, 'stop')
-
+    call input_real ('smoothing_width',smoothing_width, 'stop')
     call input_real_vector ('x0', x0, 3, 'stop')
 
     call input_integer ('smoothing_method', smoothing_method, 'stop')
@@ -737,11 +738,58 @@ CONTAINS
     porosity_term = (1.0_pr - u(:,n_var_porosity)) / (1.0_pr - initial_porosity)
   END FUNCTION porosity_term
 
-  PURE FUNCTION conductivity (temperature)
+  FUNCTION conductivity (temperature)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: temperature(:)
     REAL (pr) :: conductivity(SIZE(temperature))
-    conductivity = 1.0_pr + conductivity_der*temperature
+    REAL (pr) :: temperature_S, temperature_L, cond_smooth, conductivity_der_drop, enthalpy_L, enthalpy_S,&
+      Temp_Sm, Temp_Sp, Temp_Lm, Temp_Lp
+    REAL (pr), DIMENSION (4) :: Spline_conductivity_S, Spline_conductivity_L
+
+    enthalpy_S = 1.0_pr - fusion_delta/2                ! enthalpy at the solidus temperature
+    enthalpy_L = 1.0_pr + fusion_delta/2 + fusion_heat  ! enthalpy at the liquidus temperature
+    temperature_L = temperature(enthalpy_L)
+    temperature_S = temperature(enthalpy_S)
+    cond_smooth = (fusion_heat + fusion_delta)*smoothing_width*temperature_L/enthalpy_L
+    Temp_Lm = temperature_L - cond_smooth
+    Temp_Sm = temperature_S - cond_smooth
+    Temp_Lp = temperature_L + cond_smooth
+    Temp_Sp = temperature_S + cond_smooth
+    conductivity_der_drop = (1.0_pr/conductivity_drop - 1.0_pr + conductivity_der*(temperature_L - temperature_S)) &
+      /(temperature_L-temperature_S)
+
+    IF (smoothing_method.EQ.0) THEN
+      conductivity = 1.0_pr + conductivity_der*temperature
+    ELSE IF (smoothing_method.EQ.1) THEN
+      conductivity = 1.0_pr + conductivity_der*temperature
+      Spline_conductivity_S = Spline_cubic(Temp_Sm,Temp_Sp, & !points
+        1.0 + conductivity_der*Temp_Sm,1.0 + conductivity_der*temperature_S + conductivity_der_drop*cond_smooth, & !values
+        conductivity_der,conductivity_der_drop) !derivatives
+      Spline_conductivity_L = Spline_cubic(Temp_Lm,Temp_Lp, &
+        1.0/conductivity_drop + conductivity_der*Temp_Lp*conductivity_der_drop, 1.0/conductivity_drop + conductivity_der*Temp_Lp, &
+        conductivity_der_drop, conductivity_der)
+      WHERE (temperature.LE.Temp_Sm)
+        conductivity = 1.0_pr + conductivity_der*temperature
+      END WHERE
+      WHERE (temperature.GT.Temp_Sm .AND. temperature.LE.Temp_Sp)
+        conductivity = Spline_conductivity_S(1)*temperature**3 + Spline_conductivity_S(2)*temperature**2 &
+          + Spline_conductivity_S(3)*temperature + Spline_conductivity_S(4)
+      END WHERE
+      WHERE (temperature.GT.Temp_Sp .AND. temperature.LE.Temp_Lp)
+        conductivity = 1.0_pr + conductivity_der*temperature_S + conductivity_der_drop*temperature
+      END WHERE
+      WHERE (temperature.GT.Temp_Sm .AND. temperature.LE.Temp_Sp)
+        conductivity = Spline_conductivity_L(1)*temperature**3 + Spline_conductivity_L(2)*temperature**2 &
+          + Spline_conductivity_L(3)*temperature + Spline_conductivity_L(4)
+      END WHERE
+      WHERE (temperature.GT.Temp_Sp .AND. temperature.LE.Temp_Lp)
+        conductivity = 1.0_pr/conductivity_drop + conductivity_der*temperature
+      END WHERE
+    ELSE IF (smoothing_method.EQ.2) THEN
+      conductivity = 1.0_pr + conductivity_der*temperature &
+        + (1.0_pr - 1.0/conductivity_drop)/(1.0_pr + EXP(2.0_pr*conductivity_der_drop &
+        *(temperature-(temperature_S + temperature_L)/2)))
+    END IF
   END FUNCTION conductivity
 
   PURE FUNCTION capacity (temperature)
