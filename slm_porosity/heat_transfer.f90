@@ -39,10 +39,12 @@ MODULE user_case
   REAL (pr) :: initial_porosity
   REAL (pr) :: initial_enthalpy
   REAL (pr) :: smoothing_width      ! width of spline in terms of fusion_delta
-  REAL (pr) :: conductivity_der_solid     ! first derivative of conductivity on temperature
-  REAL (pr) :: conductivity_der_liquid     ! first derivative of conductivity on temperature
-  REAL (pr) :: capacity_der         ! first derivative of capacity on temperature
-  REAL (pr) :: conductivity_drop    ! conductivity in liqiud form liquid_cond = 1/conductivity_drop+solid_cond*T
+  REAL (pr) :: conductivity_der_solid     ! first derivative of conductivity on temperature in solid state
+  REAL (pr) :: conductivity_der_liquid     ! first derivative of conductivity on temperature in liquid state
+  REAL (pr) :: capacity_der_solid         ! first derivative of capacity on temperature
+  REAL (pr) :: capacity_der_liquid        ! first derivative of capacity on temperature
+  REAL (pr) :: capacity_fusion      ! capacity in liquid form
+  REAL (pr) :: conductivity_fusion    ! conductivity in liqiud form liquid_cond = (1+conductivity_fusion)+solid_cond*T
   REAL (pr), DIMENSION(3) :: x0     ! Initial coordinates of the center of the laser beam
 CONTAINS
 
@@ -337,7 +339,7 @@ CONTAINS
     IF (IMEXswitch .GE. 0) THEN
        CALL c_diff_fast(enthalpy_fusion(u_integrated(:,ie)), du, du_dummy, j_lev, ng, meth, 10, ne, 1, ne)
        T = temperature(u_integrated(:,ie))
-       du(ie,:,:) = du(ie,:,:) * SPREAD(conductivity(T) / capacity(T) * porosity_term(), 2, dim)
+       du(ie,:,:) = du(ie,:,:) * SPREAD(conductivity(T,u_integrated(:,ie)) / capacity(T, u_integrated(:,ie)) * porosity_term(), 2, dim)
        CALL c_diff_fast(du(ie,:,:), d2u, d2u_dummy, j_lev, ng, meth, 10, dim, 1, dim)
        DO i = 1, dim
           user_rhs(shift+1:shift+ng) = user_rhs(shift+1:shift+ng) + d2u(i,:,i)
@@ -362,7 +364,8 @@ CONTAINS
 
     ie = n_var_enthalpy
     shift = ng*(ie-1)
-    first_der = conductivity_der_solid - 2*capacity_der
+    !This line is really confusing
+    first_der = conductivity_der_solid - 2*capacity_der_solid
     IF (IMEXswitch.LE.0) THEN
        user_Drhs(shift+1:shift+ng) = 0.0_pr
     END IF
@@ -370,8 +373,9 @@ CONTAINS
        for_du = RESHAPE((/ enthalpy_fusion(u_prev(:,ie), .TRUE.)*pert_u(:,ie), enthalpy_fusion(u_prev(:,ie)) /), SHAPE(for_du))
        CALL c_diff_fast(for_du, du, du_dummy, j_lev, ng, meth, 10, 2*ne, 1, 2*ne)
        T = temperature(u_prev(:,ie))
-       part1 = du(2*ie,:,:) * SPREAD(first_der / capacity(T)**3 * enthalpy_fusion(u_prev(:,ie), .TRUE.)*pert_u(:,ie), 2, dim)
-       part2 = du(ie,:,:) * SPREAD(conductivity(T) / capacity(T), 2, dim)
+       !u_prev is previous, but what is pert_u
+       part1 = du(2*ie,:,:) * SPREAD(first_der / capacity(T, pert_u(:,ie))**3 * enthalpy_fusion(u_prev(:,ie), .TRUE.)*pert_u(:,ie), 2, dim)
+       part2 = du(ie,:,:) * SPREAD(conductivity(T, pert_u(:,ie)) / capacity(T, pert_u(:,ie)), 2, dim)
        CALL c_diff_fast((part1 + part2) * SPREAD(porosity_term(), 2, dim), d2u, d2u_dummy, j_lev, ng, meth, 10, dim, 1, dim)
        DO i = 1, dim
           user_Drhs(shift+1:shift+ng) = user_Drhs(shift+1:shift+ng) + d2u(i,:,i)
@@ -408,7 +412,7 @@ CONTAINS
 
     ie = n_var_enthalpy
     shift = ng*(ie-1)
-    first_der = conductivity_der_solid - 2*capacity_der
+    first_der = conductivity_der_solid - 2*capacity_der_solid
     IF (IMEXswitch.LE.0) THEN
        user_Drhs_diag(shift+1:shift+ng) = 1.0_pr
     END IF
@@ -416,8 +420,8 @@ CONTAINS
        CALL c_diff_fast(enthalpy_fusion(u_prev_timestep(shift+1:shift+ng)), du_prev, du_dummy, j_lev, ng, meth, 10, ne, 1, ne)
        CALL c_diff_diag(du, d2u, j_lev, ng, meth, meth, -11)
        T = temperature(u_prev_timestep(shift+1:shift+ng))
-       part1 = du * du_prev(ie,:,:) * SPREAD(first_der / capacity(T)**3, 2, dim)
-       part2 = d2u * SPREAD(conductivity(T) / capacity(T), 2, dim)
+       part1 = du * du_prev(ie,:,:) * SPREAD(first_der / capacity(T, u_prev_timestep(shift+1:shift+ng))**3, 2, dim)
+       part2 = d2u * SPREAD(conductivity(T, u_prev_timestep(shift+1:shift+ng)) / capacity(T, u_prev_timestep(shift+1:shift+ng)), 2, dim)
        user_Drhs_diag(shift+1:shift+ng) = SUM(part1 + part2, 2) * &
           enthalpy_fusion(u_prev_timestep(shift+1:shift+ng), .TRUE.) * porosity_term()
     END IF
@@ -493,11 +497,15 @@ CONTAINS
     call input_real ('scanning_speed', scanning_speed, 'stop')
     call input_real ('initial_porosity', initial_porosity, 'stop')
     call input_real ('initial_enthalpy', initial_enthalpy, 'stop')
-    call input_real ('conductivity_der_solid', conductivity_der_solid, 'stop')
-    call input_real ('capacity_der', capacity_der, 'stop')
     call input_real ('smoothing_width', smoothing_width, 'stop')
-    call input_real ('conductivity_drop', conductivity_drop, 'stop')
+
+    call input_real ('conductivity_der_solid', conductivity_der_solid, 'stop')
+    call input_real ('conductivity_fusion', conductivity_fusion, 'stop')
     call input_real ('conductivity_der_liquid', conductivity_der_liquid, 'stop')
+    call input_real ('capacity_der_liquid', capacity_der_liquid, 'stop')
+    call input_real ('capacity_der_solid', capacity_der_solid, 'stop')
+    call input_real ('capacity_fusion', capacity_fusion, 'stop')
+
     call input_real_vector ('x0', x0, 3, 'stop')
 
     call input_integer ('smoothing_method', smoothing_method, 'stop')
@@ -641,11 +649,11 @@ CONTAINS
     enthalpy_L = 1.0_pr + fusion_delta/2 + fusion_heat  ! enthalpy at the liquidus temperature
 
     IF (smoothing_method.EQ.0) THEN         ! C^0
-      liquid_fraction = piecewise_connection(enthalpy, is_D, enthalpy_S, enthalpy_L, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr)
+      liquid_fraction = piecewise_connection(enthalpy, enthalpy_S, enthalpy_L, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr, is_D)
     ELSE IF (smoothing_method.EQ.1) THEN    ! C^1
-      liquid_fraction = cubic_splines_smooth(enthalpy, is_D, enthalpy_S, enthalpy_L, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr)
+      liquid_fraction = cubic_splines_smooth(enthalpy, enthalpy_S, enthalpy_L, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr, is_D)
     ELSE IF (smoothing_method.EQ.2) THEN    ! C^\infty
-      liquid_fraction = exponent_smooth(enthalpy, is_D, enthalpy_S, enthalpy_L, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr)
+      liquid_fraction = exponent_smooth(enthalpy, enthalpy_S, enthalpy_L, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr, is_D)
     END IF
   END FUNCTION liquid_fraction
 
@@ -662,47 +670,35 @@ CONTAINS
     porosity_term = (1.0_pr - u(:,n_var_porosity)) / (1.0_pr - initial_porosity)
   END FUNCTION porosity_term
 
-  FUNCTION conductivity (temperature)
+  FUNCTION conductivity (temperature_var, enthalpy)
     IMPLICIT NONE
-    REAL (pr), INTENT(IN) :: temperature(:)
-    REAL (pr) :: conductivity(SIZE(temperature))
-    REAL (pr) :: temperature_S, temperature_L
-    REAL (pr) :: enthalpy_L, enthalpy_S
-    LOGICAL :: is_D   !is_D = 0 cause there is now changes in DRHS for now
-    is_D = 0
-    enthalpy_S = 1.0_pr - fusion_delta/2                ! enthalpy at the solidus temperature
-    enthalpy_L = 1.0_pr + fusion_delta/2 + fusion_heat  ! enthalpy at the liquidus temperature
-    temperature_L = enthalpy_L - fusion_heat
-    temperature_S = enthalpy_S
-
-    IF (smoothing_method.EQ.0) THEN
-      conductivity = piecewise_connection(temperature, is_D, temperature_S, temperature_L, &
-        conductivity_der_solid, 1.0_pr, conductivity_der_liquid, 1.0_pr/conductivity_drop)
-    ELSE IF (smoothing_method.EQ.1) THEN
-      conductivity = cubic_splines_smooth(temperature, is_D, temperature_S, temperature_L, &
-        conductivity_der_solid, 1.0_pr, conductivity_der_liquid, 1.0_pr/conductivity_drop)
-    ELSE IF (smoothing_method.EQ.2) THEN
-      conductivity = exponent_smooth(temperature, is_D, temperature_S, temperature_L, &
-        conductivity_der_solid, 1.0_pr, conductivity_der_liquid, 1.0_pr/conductivity_drop)
-    END IF
+    REAL (pr), INTENT(IN) :: temperature_var(:), enthalpy(:)
+    REAL (pr) :: conductivity(SIZE(temperature_var))
+    conductivity = 1.0_pr + conductivity_der_solid*temperature_var + &
+      (conductivity_fusion + (conductivity_der_liquid - conductivity_der_solid)*temperature_var) &
+      *liquid_fraction(enthalpy)
   END FUNCTION conductivity
 
-  PURE FUNCTION capacity (temperature)
+  FUNCTION capacity (temperature_var, enthalpy)
     IMPLICIT NONE
-    REAL (pr), INTENT(IN) :: temperature(:)
-    REAL (pr) :: capacity(SIZE(temperature))
-    capacity = 1.0_pr + 2*capacity_der*temperature
+    REAL (pr), INTENT(IN) :: temperature_var(:), enthalpy(:)
+    REAL (pr) :: capacity(SIZE(temperature_var))
+    capacity = 1.0_pr + capacity_der_solid*temperature_var + &
+      (capacity_fusion + (capacity_der_liquid - capacity_der_solid)*temperature_var) &
+      *liquid_fraction(enthalpy)
   END FUNCTION capacity
 
   FUNCTION temperature (enthalpy)
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: enthalpy(:)
     REAL (pr) :: temperature(SIZE(enthalpy))
-    IF (capacity_der.LE.1e-6) THEN
+    REAL (pr) :: a(SIZE(enthalpy)), b(SIZE(enthalpy)), c(SIZE(enthalpy))
+    IF (capacity_der_solid.LE.1e-6) THEN
         temperature = enthalpy_fusion(enthalpy)
     ELSE
-        !temperature = enthalpy_fusion(enthalpy)
-        temperature = (SQRT(1.0_pr + 4*capacity_der*enthalpy_fusion(enthalpy)) - 1.0_pr)/2/capacity_der
+        a = capacity_der_solid/2+(capacity_der_liquid-capacity_der_solid)/2*liquid_fraction(enthalpy)
+        b = 1+capacity_fusion*liquid_fraction(enthalpy)
+        temperature = (SQRT(b**2 + 2*a*enthalpy_fusion(enthalpy)) - b)/(2*a)
     END IF
   END FUNCTION temperature
 
@@ -711,7 +707,7 @@ CONTAINS
     REAL (pr), INTENT(IN) :: enthalpy(:), enthalpy_prev(:)
     REAL (pr) :: linearized_temperature(SIZE(enthalpy))
     linearized_temperature = enthalpy_fusion(enthalpy) / &
-        (1.0_pr + 2*capacity_der*temperature(enthalpy_prev))
+        (1.0_pr + 2*capacity_der_solid*temperature(enthalpy_prev))
   END FUNCTION linearized_temperature
 
   FUNCTION linearized_temperature_diag (enthalpy_prev)
@@ -719,7 +715,7 @@ CONTAINS
     REAL (pr), INTENT(IN) :: enthalpy_prev(:)
     REAL (pr) :: linearized_temperature_diag(SIZE(enthalpy_prev))
     linearized_temperature_diag = enthalpy_fusion(enthalpy_prev, .TRUE.) / &
-        (1.0_pr + 2*capacity_der*temperature(enthalpy_prev))
+        (1.0_pr + 2*capacity_der_solid*temperature(enthalpy_prev))
   END FUNCTION linearized_temperature_diag
 
   FUNCTION linearized_temperature_rhs (enthalpy_prev)
@@ -727,7 +723,7 @@ CONTAINS
     REAL (pr), INTENT(IN) :: enthalpy_prev(:)
     REAL (pr) :: linearized_temperature_rhs(SIZE(enthalpy_prev))
     linearized_temperature_rhs = - temperature(enthalpy_prev) + enthalpy_fusion(enthalpy_prev) / &
-        (1.0_pr + 2*capacity_der*temperature(enthalpy_prev))
+        (1.0_pr + 2*capacity_der_solid*temperature(enthalpy_prev))
   END FUNCTION linearized_temperature_rhs
 
   ! is_D = 0 for RHS, = 1 for DRHS and DRHS_diag
@@ -751,7 +747,7 @@ CONTAINS
     REAL (pr), DIMENSION(nwlt) :: porosity_term_
     porosity_term_ = porosity_term()
     Lu(iloc(1:nloc)) = convective_transfer * u(iloc(1:nloc)) + &
-        porosity_term_(iloc(1:nloc)) * conductivity(T(iloc(1:nloc))) * du(iloc(1:nloc), dim)
+        porosity_term_(iloc(1:nloc)) * conductivity(T(iloc(1:nloc)),u(iloc(1:nloc))) * du(iloc(1:nloc), dim)
   END SUBROUTINE my_bc
 
   FUNCTION Spline_cubic (r_p, l_p, fr_p, fl_p, dfr_p, dfl_p)
@@ -770,7 +766,7 @@ CONTAINS
   END FUNCTION Spline_cubic
 
     !exponential smoothness of two lines a1*x+b1 and a2*x+b2 with the drop declared by two points: left_p and right_p
-  FUNCTION exponent_smooth (field, is_D, left_p, right_p, a1, b1, a2, b2)
+  FUNCTION exponent_smooth (field, left_p, right_p, a1, b1, a2, b2, is_D)
     IMPLICIT NONE
     REAL (pr),         INTENT(IN) :: field(:), left_p, right_p, a1, a2, b1, b2
     LOGICAL, OPTIONAL, INTENT(IN) :: is_D
@@ -789,7 +785,7 @@ CONTAINS
   END FUNCTION exponent_smooth
 
   !piecwise connection of two lines a1*x+b1 and a2*x+b2 with the drop declared by two points: left_p and right_p
-  FUNCTION piecewise_connection (field, is_D, left_p, right_p, a1, a2, b1, b2)
+  FUNCTION piecewise_connection (field, left_p, right_p, a1, a2, b1, b2, is_D)
     IMPLICIT NONE
     REAL (pr),         INTENT(IN) :: field(:), left_p, right_p, a1, a2, b1, b2
     LOGICAL, OPTIONAL, INTENT(IN) :: is_D
@@ -818,7 +814,7 @@ CONTAINS
   END FUNCTION piecewise_connection
 
   !spline smoothness of two lines a1*x+b1 and a2*x+b2 with the drop declared by two points: left_p and right_p
-  FUNCTION cubic_splines_smooth (field, is_D, left_p, right_p, a1, a2, b1, b2)
+  FUNCTION cubic_splines_smooth (field, left_p, right_p, a1, a2, b1, b2, is_D)
     IMPLICIT NONE
     REAL (pr),         INTENT(IN) :: field(:), left_p, right_p, a1, a2, b1, b2
     LOGICAL, OPTIONAL, INTENT(IN) :: is_D
@@ -834,11 +830,11 @@ CONTAINS
     rightp = right_p + smooth_delta
     v_left = a1*left_p + b1
     v_right = a2*right_p + b2
-    v_drop_left = (v_right - v_left)*der*left_p + (right_p*v_left - left_p*v_right)*der
-    v_drop_right = (v_right - v_left)*der*right_p + (right_p*v_left - left_p*v_right)*der
+    v_drop_left = (v_right - v_left)*der*leftp + (right_p*v_left - left_p*v_right)*der
+    v_drop_right = (v_right - v_left)*der*rightm + (right_p*v_left - left_p*v_right)*der
     coeff_left = Spline_cubic(leftm, leftp, a1*leftm+b1, v_drop_left, a1, (v_right - v_left)*der)
     coeff_right = Spline_cubic(rightm, rightp, v_drop_right, a2*rightp+b2, (v_right - v_left)*der, a2)
-    cubic_splines_smooth = piecewise_connection(field, is_D, left_p, right_p, a1, a2, b1, b2)
+    cubic_splines_smooth = piecewise_connection(field, left_p, right_p, a1, a2, b1, b2, is_D)
 
     IF (.NOT.PRESENT(is_D)) THEN
       WHERE (field.GT.leftm .AND. field.LE.leftp)
