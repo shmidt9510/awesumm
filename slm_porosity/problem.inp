@@ -143,8 +143,8 @@ smoothing_width = 0.15          #  width of spline in terms of fusion_delta
 
 #### make solid = liquid and fuison = 0 to get back to old variant
 conductivity_der_solid = 1.329e+00
-conductivity_der_liquid = 0.829e+00   #magic number for now
-conductivity_fusion = 0.1          #  drop of conductivity in liquid form
+conductivity_der_liquid = 1.329e+00   #magic number for now
+conductivity_fusion = 0          #  drop of conductivity in liquid form
 capacity_der_solid = 5.671e-01
-capacity_der_liquid = 9.671e-01     #also magic number
-capacity_fusion = 0.1
+capacity_der_liquid = 5.671e-01     #also magic number
+capacity_fusion = 0
