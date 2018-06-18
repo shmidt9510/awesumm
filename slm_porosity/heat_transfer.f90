@@ -164,7 +164,7 @@ CONTAINS
     IF (dim.EQ.2) x0(dim) = xyzlimits(1,dim)
     IF ( IC_restart_mode.EQ.0 ) THEN
        DO i = 1, nlocal
-          u(i,n_var_enthalpy) = initial_enthalpy*EXP(-SUM((x(i,:)-x0)**2))*EXP(-(x(i,dim)-x0(dim))**2)*power*absorb
+          u(i,n_var_enthalpy) = initial_enthalpy*EXP(-SUM((x(i,:)-x0)**2))*EXP(-(x(i,dim)-x0(dim))**2)
        END DO
        !WHERE (x(:,dim).NE.x0(dim))
        !   u(:,n_var_enthalpy) = 0
@@ -197,9 +197,8 @@ CONTAINS
     INTEGER, DIMENSION(0:dim) :: i_p_face
     INTEGER, DIMENSION(dim) :: face
     INTEGER, DIMENSION(nwlt) :: iloc
-    ! u = dh/dx
+    ! du = dh/dx
     CALL c_diff_fast (u, du, d2u, jlev, nlocal, meth, 10, ne_local, 1, ne_local)
-
     DO ie = 1, ne_local
        shift = nlocal*(ie-1)
        i_p_face(0) = 1
@@ -214,11 +213,12 @@ CONTAINS
              IF( nloc > 0 ) THEN
                 IF( face(dim) < 0 ) THEN    ! z=0 face
                    ! dependence on temperature should be linear; therefore, we use only u_prev_timestep here
-                   Lu(iloc(1:nloc)) = (1 - porosity(u_prev_timestep(iloc(1:nloc)))) * &
-                    conductivity(temperature(u_prev_timestep(iloc(1:nloc))), u_prev_timestep(iloc(1:nloc))) / &
-                    capacity(temperature(u_prev_timestep(iloc(1:nloc))), u_prev_timestep(iloc(1:nloc))) * &
-                    (1.0_pr - fusion_heat*liquid_fraction(u_prev_timestep(iloc(1:nloc)), .TRUE.)) * &
-                    du(ie, iloc(1:nloc), dim) !+ &
+                   ! LHS = (1 - \psi)* k/c_p *(1 - h_fus * \phi')*dh
+                   Lu(iloc(1:nloc)) = (1.0_pr - porosity(u_prev_timestep(iloc(1:nloc)))) * &
+                      conductivity(u_prev_timestep(iloc(1:nloc))) /&
+                      capacity(u_prev_timestep(iloc(1:nloc))) * &
+                      (1.0_pr - fusion_heat*liquid_fraction(u_prev_timestep(iloc(1:nloc)), .TRUE.)) * &
+                      du(ie, iloc(1:nloc), dim) !+ &
                     ! convective_transfer * temperature(u_prev_timestep(iloc(1:nloc))) * &
                     ! temperature_derivative(u_prev_timestep(iloc(1:nloc))) * u(iloc(1:nloc))
 
@@ -234,98 +234,98 @@ CONTAINS
   END SUBROUTINE user_algebraic_BC
 
   SUBROUTINE user_algebraic_BC_diag (Lu_diag, nlocal, ne_local, jlev, meth)
-    IMPLICIT NONE
-    INTEGER , INTENT (IN) :: jlev, meth, ne_local, nlocal
-    REAL (pr), DIMENSION (nlocal*ne_local), INTENT (INOUT) :: Lu_diag
+      IMPLICIT NONE
+      INTEGER , INTENT (IN) :: jlev, meth, ne_local, nlocal
+      REAL (pr), DIMENSION (nlocal*ne_local), INTENT (INOUT) :: Lu_diag
 
-    INTEGER :: i, ie, shift, face_type, nloc
-    REAL (pr), DIMENSION (nlocal,dim) :: du, d2u
-    REAL (pr), DIMENSION (nlocal) :: ones
-    INTEGER, DIMENSION(0:dim) :: i_p_face
-    INTEGER, DIMENSION(dim) :: face
-    INTEGER, DIMENSION(nwlt) :: iloc
+      INTEGER :: i, ie, shift, face_type, nloc
+      REAL (pr), DIMENSION (nlocal,dim) :: du, d2u ,du_old
+      REAL (pr), DIMENSION (nlocal) :: ones
+      INTEGER, DIMENSION(0:dim) :: i_p_face
+      INTEGER, DIMENSION(dim) :: face
+      INTEGER, DIMENSION(nwlt) :: iloc
+      ! du_old(ie, iloc(1:nloc), dim) = (1.0_pr - porosity(u_prev_timestep(iloc(1:nloc)))) * &
+      !    conductivity(u_prev_timestep(iloc(1:nloc))) /&
+      !    capacity(u_prev_timestep(iloc(1:nloc))) * &
+      !    (1.0_pr - fusion_heat*liquid_fraction(u_prev_timestep(iloc(1:nloc)), .TRUE.)) * &
+      !    du(ie, iloc(1:nloc), dim)
+      CALL c_diff_diag (du, d2u, jlev, nlocal, meth, meth, 10)
 
-    CALL c_diff_diag (du, d2u, jlev, nlocal, meth, meth, 10)
+      DO ie = 1, ne_local
+         shift = nlocal*(ie-1)
+         i_p_face(0) = 1
+         DO i=1,dim
+            i_p_face(i) = i_p_face(i-1)*3
+         END DO
+         DO face_type = 0, 3**dim - 1
+            face = INT(MOD(face_type,i_p_face(1:dim))/i_p_face(0:dim-1))-1
+            IF( ANY( face(1:dim) /= 0) .AND. ie == n_var_enthalpy ) THEN
+               CALL get_all_indices_by_face (face_type, jlev, nloc, iloc)
+               iloc(1:nloc) = shift + iloc(1:nloc)
+               IF( nloc > 0 ) THEN
+                  IF( face(dim) < 0 ) THEN    ! z=0 face
+                     ones = 1.0_pr
+                     ! CALL my_bc(Lu_diag, ones, du, temperature(u_prev_timestep), nloc, iloc)
+                     Lu_diag(iloc(1:nloc)) = &
+                     (1.0_pr - porosity(u_prev_timestep(iloc(1:nloc)))) * &
+                        conductivity(u_prev_timestep(iloc(1:nloc))) /&
+                        capacity(u_prev_timestep(iloc(1:nloc))) * &
+                        (1.0_pr - fusion_heat*liquid_fraction(u_prev_timestep(iloc(1:nloc)), .TRUE.)) * &
+                        du(iloc(1:nloc), dim) !+
+                  ELSE                        ! other faces
+                     Lu_diag(iloc(1:nloc)) = 1.0_pr
+                  END IF
+               END IF
+            END IF
+         END DO
+      END DO
+      !PRINT *, 'user_algebraic_BC_diag', Lu_diag(shift+iloc(1:nloc))
 
-    DO ie = 1, ne_local
-       shift = nlocal*(ie-1)
-       i_p_face(0) = 1
-       DO i=1,dim
-          i_p_face(i) = i_p_face(i-1)*3
-       END DO
-       DO face_type = 0, 3**dim - 1
-          face = INT(MOD(face_type,i_p_face(1:dim))/i_p_face(0:dim-1))-1
-          IF( ANY( face(1:dim) /= 0) .AND. ie == n_var_enthalpy ) THEN
-             CALL get_all_indices_by_face (face_type, jlev, nloc, iloc)
-             iloc(1:nloc) = shift + iloc(1:nloc)
-             IF( nloc > 0 ) THEN
-                IF( face(dim) < 0 ) THEN    ! z=0 face
-                   ! ones = 1.0_pr
-                   ! CALL my_bc(Lu_diag, ones, du, temperature(u_prev_timestep), nloc, iloc)
-                   ! Lu_diag(iloc(1:nloc)) = Lu_diag(iloc(1:nloc)) * &
-                   !    linearized_temperature_diag(u_prev_timestep(iloc(1:nloc)))
-                   Lu_diag(iloc(1:nloc)) = 1.0_pr
-                ELSE                        ! other faces
-                   Lu_diag(iloc(1:nloc)) = 1.0_pr
-                END IF
-             END IF
-          END IF
-       END DO
-    END DO
-    !PRINT *, 'user_algebraic_BC_diag', Lu_diag(shift+iloc(1:nloc))
+    END SUBROUTINE user_algebraic_BC_diag
 
-  END SUBROUTINE user_algebraic_BC_diag
+    SUBROUTINE user_algebraic_BC_rhs (rhs, ne_local, nlocal, jlev)
+      IMPLICIT NONE
+      INTEGER , INTENT (IN) :: ne_local, nlocal, jlev
+      REAL (pr), DIMENSION (nlocal*ne_local), INTENT (INOUT) :: rhs
+      REAL (pr), DIMENSION (nlocal*ne_local) :: linearized_rhs
 
-  SUBROUTINE user_algebraic_BC_rhs (rhs, ne_local, nlocal, jlev)
-    IMPLICIT NONE
-    INTEGER , INTENT (IN) :: ne_local, nlocal, jlev
-    REAL (pr), DIMENSION (nlocal*ne_local), INTENT (INOUT) :: rhs
-    REAL (pr), DIMENSION (nlocal*ne_local) :: linearized_rhs
-    REAL (pr), DIMENSION (1) :: ones
+      INTEGER :: i, ie, shift, face_type, nloc, meth=1
+      REAL (pr), DIMENSION (ne_local,nlocal,dim) :: du, d2u
+      INTEGER, DIMENSION(0:dim) :: i_p_face
+      INTEGER, DIMENSION(dim) :: face
+      INTEGER, DIMENSION(nwlt) :: iloc
 
-    INTEGER :: i, ie, shift, face_type, nloc, meth=1
-    REAL (pr), DIMENSION (ne_local,nlocal,dim) :: du, d2u
-    INTEGER, DIMENSION(0:dim) :: i_p_face
-    INTEGER, DIMENSION(dim) :: face
-    INTEGER, DIMENSION(nwlt) :: iloc
+      CALL c_diff_fast (linearized_temperature_rhs(u_prev_timestep), du, d2u, jlev, nlocal, meth, 10, ne_local, 1, ne_local)
 
-    ! CALL c_diff_fast (linearized_temperature_rhs(u_prev_timestep), du, d2u, jlev, nlocal, meth, 10, ne_local, 1, ne_local)
+      DO ie = 1, ne_local
+         shift = nlocal*(ie-1)
+         i_p_face(0) = 1
+         DO i=1,dim
+            i_p_face(i) = i_p_face(i-1)*3
+         END DO
+         DO face_type = 0, 3**dim - 1
+            face = INT(MOD(face_type,i_p_face(1:dim))/i_p_face(0:dim-1))-1
+            IF( ANY( face(1:dim) /= 0) .AND. ie == n_var_enthalpy ) THEN
+               CALL get_all_indices_by_face (face_type, jlev, nloc, iloc)
+               iloc(1:nloc) = shift + iloc(1:nloc)
+               IF( nloc > 0 ) THEN
+                  IF( face(dim) < 0 ) THEN    ! z=0 face
+                     IF( dim == 3 ) THEN
+                        rhs(iloc(1:nloc)) =0.0_pr! -exp(-(x(iloc(1:nloc), 1) - scanning_speed*t - x0(1))**2 - (x(iloc(1:nloc), 2) - x0(2))**2 ) / pi
+                     ELSE
+                        rhs(iloc(1:nloc)) =0.0_pr! -exp(-(x(iloc(1:nloc), 1) - scanning_speed*t - x0(1))**2 ) / pi**.5
+                     END IF
+                     CALL my_bc(linearized_rhs, linearized_temperature_rhs(u_prev_timestep), du(ie,:,:), temperature(u_prev_timestep), nloc, iloc)
+                     rhs(iloc(1:nloc)) = 0*rhs(iloc(1:nloc)) * absorb * power !+ linearized_rhs(iloc(1:nloc))
+                  ELSE                        ! other faces
+                     rhs(iloc(1:nloc)) = 0
+                  END IF
+               END IF
+            END IF
+         END DO
+      END DO
 
-    DO ie = 1, ne_local
-       shift = nlocal*(ie-1)
-       i_p_face(0) = 1
-       DO i=1,dim
-          i_p_face(i) = i_p_face(i-1)*3
-       END DO
-       DO face_type = 0, 3**dim - 1
-          face = INT(MOD(face_type,i_p_face(1:dim))/i_p_face(0:dim-1))-1
-          IF( ANY( face(1:dim) /= 0) .AND. ie == n_var_enthalpy ) THEN
-             CALL get_all_indices_by_face (face_type, jlev, nloc, iloc)
-             iloc(1:nloc) = shift + iloc(1:nloc)
-             IF( nloc > 0 ) THEN
-                IF( face(dim) < 0 ) THEN    ! z=0 face
-                   IF( dim == 3 ) THEN
-                     ! rhs(iloc(1:nloc)) = -piecewise_connection(ones, 0.0_pr, 0.0001_pr, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr)* &
-                     !   exp(-(x(iloc(1:nloc), 1) - scanning_speed*t - x0(1))**2 - (x(iloc(1:nloc), 2) - x0(2))**2 ) / pi
-                     rhs(iloc(1:nloc)) = -exp(-(x(iloc(1:nloc), 1) - scanning_speed*t - x0(1))**2 - (x(iloc(1:nloc), 2) - x0(2))**2 ) / pi
-                  ELSE
-                    ones = t
-                     ! rhs(iloc(1:nloc)) = -piecewise_connection(ones, 0.0_pr, 0.005_pr, 0.0_pr, 0.0_pr, 0.0_pr, 1.0_pr)* &
-                     !   exp(-(x(iloc(1:nloc), 1) - scanning_speed*t - x0(1))**2 ) / pi**.5
-                     rhs(iloc(1:nloc)) = -exp(-(x(iloc(1:nloc), 1) - scanning_speed*t - x0(1))**2 ) / pi**.5
-                   END IF
-                   ! CALL my_bc(linearized_rhs, linearized_temperature_rhs(u_prev_timestep), du(ie,:,:), temperature(u_prev_timestep), nloc, iloc)
-                   rhs(iloc(1:nloc)) = rhs(iloc(1:nloc)) * absorb * power !- convective_transfer * temperature(u_prev_timestep(iloc(1:nloc)))
-                   !+ linearized_rhs(iloc(1:nloc))
-                ELSE                        ! other faces
-                   rhs(iloc(1:nloc)) = 0
-                END IF
-             END IF
-          END IF
-       END DO
-    END DO
-
-  END SUBROUTINE user_algebraic_BC_rhs
+    END SUBROUTINE user_algebraic_BC_rhs
 
   SUBROUTINE user_project (u, p, nlocal, meth)
     !--Makes u divergence free
@@ -353,8 +353,8 @@ CONTAINS
     END IF
     IF (IMEXswitch .GE. 0) THEN
        CALL c_diff_fast(enthalpy_fusion(u_integrated(:,ie)), du, du_dummy, j_lev, ng, meth, 10, ne, 1, ne)
-       T = temperature(u_integrated(:,ie))
-       du(ie,:,:) = du(ie,:,:) * SPREAD(conductivity(T, u_integrated(:,ie)) / capacity(T, u_integrated(:,ie)) * porosity_term(), 2, dim)
+       ! T = temperature(u_integrated(:,ie))
+       du(ie,:,:) = du(ie,:,:) * SPREAD(conductivity(u_integrated(:,ie)) / capacity(u_integrated(:,ie)) * porosity_term(), 2, dim)
        CALL c_diff_fast(du(ie,:,:), d2u, d2u_dummy, j_lev, ng, meth, 10, dim, 1, dim)
        DO i = 1, dim
           user_rhs(shift+1:shift+ng) = user_rhs(shift+1:shift+ng) + d2u(i,:,i)
@@ -363,86 +363,72 @@ CONTAINS
   END FUNCTION user_rhs
 
   FUNCTION user_Drhs (pert_u, u_prev, meth)
-    IMPLICIT NONE
-    INTEGER, INTENT(IN) :: meth
-    REAL (pr), DIMENSION (ng,ne) :: pert_u, u_prev
-    REAL (pr), DIMENSION (n) :: user_Drhs
-    REAL (pr), DIMENSION (ng) :: T
-    INTEGER :: ie, shift, i
-    REAL (pr) :: first_der
-    REAL (pr), DIMENSION (ng,2*ne) :: for_du
-    REAL (pr), DIMENSION (2*ne,ng,dim) :: du, du_dummy ! der(pert_u) in du(1:ne,:,:) and der(u) in du(ne+1:2*ne,:,:)
-    REAL (pr), DIMENSION (dim,ng,dim) :: d2u, d2u_dummy
-    REAL (pr), DIMENSION (ng,dim) :: part1, part2
+   IMPLICIT NONE
+   INTEGER, INTENT(IN) :: meth
+   REAL (pr), DIMENSION (ng,ne) :: pert_u, u_prev
+   REAL (pr), DIMENSION (n) :: user_Drhs
+   REAL (pr), DIMENSION (ng) :: T
+   INTEGER :: ie, shift, i
+   REAL (pr) :: first_der
+   REAL (pr), DIMENSION (ng,2*ne) :: for_du
+   REAL (pr), DIMENSION (2*ne,ng,dim) :: du, du_dummy ! der(pert_u) in du(1:ne,:,:) and der(u) in du(ne+1:2*ne,:,:)
+   REAL (pr), DIMENSION (dim,ng,dim) :: d2u, d2u_dummy
+   REAL (pr), DIMENSION (ng,dim) :: part1, part2
 
-    ie = n_var_enthalpy
-    shift = ng*(ie-1)
-    !This line is really confusing
-    first_der = conductivity_der_solid - 2*capacity_der_solid
-    IF (IMEXswitch.LE.0) THEN
-       user_Drhs(shift+1:shift+ng) = 0.0_pr
-    END IF
-    IF (IMEXswitch .GE. 0) THEN
-       for_du = RESHAPE((/ enthalpy_fusion(u_prev(:,ie), .TRUE.)*pert_u(:,ie), enthalpy_fusion(u_prev(:,ie)) /), SHAPE(for_du))
-       ! CALL c_diff_fast(for_du, du, du_dummy, j_lev, ng, meth, 10, 2*ne, 1, 2*ne)
-       T = temperature(u_prev(:,ie))
-       !u_prev is previous, but what is pert_u
-       part1 = du(2*ie,:,:) * SPREAD(first_der / capacity(T, pert_u(:,ie))**3 * enthalpy_fusion(u_prev(:,ie), .TRUE.)*pert_u(:,ie), 2, dim)
-       part2 = du(ie,:,:) * SPREAD(conductivity(T, pert_u(:,ie)) / capacity(T, pert_u(:,ie)), 2, dim)
-       ! CALL c_diff_fast((part1 + part2) * SPREAD(porosity_term(), 2, dim), d2u, d2u_dummy, j_lev, ng, meth, 10, dim, 1, dim)
-       DO i = 1, dim
-          user_Drhs(shift+1:shift+ng) = pert_u(:,ie)
-          !user_Drhs(shift+1:shift+ng) + d2u(i,:,i)
-       END DO
-    END IF
-    !print *, 'u_prev', u_prev
-    !print *, 'for_du', for_du
-    !print *, 'du', du
-    !print *, 'd2u', d2u
-    !print *, 'porosity_term()', porosity_term()
-    !print *, 'temperature', T
-    !print *, 'capacity', capacity(T)**3
-    !print *, 'part1', part1
-    !print *, 'part2', part2
-    !print *, 'pert_u(:,ie)', pert_u(1:2,ie)
-    !print *, 'enthalpy_fusion(u_prev(:,ie))', enthalpy_fusion(u_prev(:,ie))
-    !PRINT *, 'user_Drhs', user_Drhs
-    IF (user_Drhs(1).NE.user_Drhs(1)) THEN
-       PRINT *, '--- NaN in user_Drhs ---'
-       CALL ABORT
-    END IF
+   ie = n_var_enthalpy
+   shift = ng*(ie-1)
+   !This line is really confusing
+   first_der = conductivity_der_solid - 2*capacity_der_solid
+   IF (IMEXswitch.LE.0) THEN
+      user_Drhs(shift+1:shift+ng) = 0.0_pr
+   END IF
+   IF (IMEXswitch .GE. 0) THEN
+      for_du = RESHAPE((/ enthalpy_fusion(u_prev(:,ie), .TRUE.)*pert_u(:,ie), enthalpy_fusion(u_prev(:,ie)) /), SHAPE(for_du))
+      CALL c_diff_fast(for_du, du, du_dummy, j_lev, ng, meth, 10, 2*ne, 1, 2*ne)
+      ! T = temperature(u_prev(:,ie))
+      !u_prev is previous, but what is pert_u
+      part1 = du(2*ie,:,:) * SPREAD(first_der / capacity(pert_u(:,ie))**3 * enthalpy_fusion(u_prev(:,ie), .TRUE.)*pert_u(:,ie), 2, dim)
+      part2 = du(ie,:,:) * SPREAD(conductivity(pert_u(:,ie)) / capacity(pert_u(:,ie)), 2, dim)
+      CALL c_diff_fast((part1 + part2) * SPREAD(porosity_term(), 2, dim), d2u, d2u_dummy, j_lev, ng, meth, 10, dim, 1, dim)
+      DO i = 1, dim
+         user_Drhs(shift+1:shift+ng) = user_Drhs(shift+1:shift+ng) + d2u(i,:,i)
+      END DO
+   END IF
+   IF (user_Drhs(1).NE.user_Drhs(1)) THEN
+      PRINT *, '--- NaN in user_Drhs ---'
+      CALL ABORT
+   END IF
 
-  END FUNCTION user_Drhs
+ END FUNCTION user_Drhs
 
-  FUNCTION user_Drhs_diag (meth)
-    IMPLICIT NONE
-    INTEGER, INTENT (IN) :: meth
-    REAL (pr), DIMENSION (n) :: user_Drhs_diag
-    REAL (pr), DIMENSION (ng) :: T
-    INTEGER :: ie, shift, i
-    REAL (pr) :: first_der
-    REAL (pr), DIMENSION (ng,dim) :: du, d2u, part1, part2
-    REAL (pr), DIMENSION (ne,ng,dim) :: du_prev, du_dummy
+ FUNCTION user_Drhs_diag (meth)
+   IMPLICIT NONE
+   INTEGER, INTENT (IN) :: meth
+   REAL (pr), DIMENSION (n) :: user_Drhs_diag
+   REAL (pr), DIMENSION (ng) :: T
+   INTEGER :: ie, shift, i
+   REAL (pr) :: first_der
+   REAL (pr), DIMENSION (ng,dim) :: du, d2u, part1, part2
+   REAL (pr), DIMENSION (ne,ng,dim) :: du_prev, du_dummy
 
-    ie = n_var_enthalpy
-    shift = ng*(ie-1)
-    first_der = conductivity_der_solid - 2*capacity_der_solid
-    IF (IMEXswitch.LE.0) THEN
-       user_Drhs_diag(shift+1:shift+ng) = 1.0_pr
-    END IF
-    IF (IMEXswitch .GE. 0) THEN
-       ! CALL c_diff_fast(enthalpy_fusion(u_prev_timestep(shift+1:shift+ng)), du_prev, du_dummy, j_lev, ng, meth, 10, ne, 1, ne)
-       ! CALL c_diff_diag(du, d2u, j_lev, ng, meth, meth, -11)
-       T = temperature(u_prev_timestep(shift+1:shift+ng))
-       part1 = du * du_prev(ie,:,:) * SPREAD(first_der / capacity(T, u_prev_timestep(shift+1:shift+ng))**3, 2, dim)
-       part2 = d2u * SPREAD(conductivity(T, u_prev_timestep(shift+1:shift+ng)) / capacity(T, u_prev_timestep(shift+1:shift+ng)), 2, dim)
-       user_Drhs_diag(shift+1:shift+ng) = 1.0_pr
-       ! SUM(part1 + part2, 2) * &
-       !    enthalpy_fusion(u_prev_timestep(shift+1:shift+ng), .TRUE.) * porosity_term()
-    END IF
-    !PRINT *, 'user_Drhs_diag', user_Drhs_diag
+   ie = n_var_enthalpy
+   shift = ng*(ie-1)
+   first_der = conductivity_der_solid - 2*capacity_der_solid
+   IF (IMEXswitch.LE.0) THEN
+      user_Drhs_diag(shift+1:shift+ng) = 1.0_pr
+   END IF
+   IF (IMEXswitch .GE. 0) THEN
+      CALL c_diff_fast(enthalpy_fusion(u_prev_timestep(shift+1:shift+ng)), du_prev, du_dummy, j_lev, ng, meth, 10, ne, 1, ne)
+      CALL c_diff_diag(du, d2u, j_lev, ng, meth, meth, -11)
+      ! T = temperature(u_prev_timestep(shift+1:shift+ng))
+      part1 = du * du_prev(ie,:,:) * SPREAD(first_der / capacity(u_prev_timestep(shift+1:shift+ng))**3, 2, dim)
+      part2 = d2u * SPREAD(conductivity(u_prev_timestep(shift+1:shift+ng)) / capacity(u_prev_timestep(shift+1:shift+ng)), 2, dim)
+      user_Drhs_diag(shift+1:shift+ng) = SUM(part1 + part2, 2) * &
+         enthalpy_fusion(u_prev_timestep(shift+1:shift+ng), .TRUE.) * porosity_term()
+   END IF
+   !PRINT *, 'user_Drhs_diag', user_Drhs_diag
 
-  END FUNCTION user_Drhs_diag
+ END FUNCTION user_Drhs_diag
 
   FUNCTION user_chi (nlocal, t_local )
     IMPLICIT NONE
@@ -685,22 +671,24 @@ CONTAINS
       porosity_term = (1.0_pr - u(:,n_var_porosity)) / (1.0_pr - initial_porosity)
     END FUNCTION porosity_term
 
-    FUNCTION conductivity (temperature_var, enthalpy)
+    FUNCTION conductivity (enthalpy)
       IMPLICIT NONE
-      REAL (pr), INTENT(IN) :: temperature_var(:), enthalpy(:)
-      REAL (pr) :: conductivity(SIZE(temperature_var))
-      conductivity = 1.0_pr + conductivity_der_solid*temperature_var + &
-        (conductivity_fusion + (conductivity_der_liquid - conductivity_der_solid)*(temperature_var - 1.0_pr)) &
-        *liquid_fraction(enthalpy)
+      REAL (pr), INTENT(IN) ::  enthalpy(:)
+      REAL (pr) :: conductivity(SIZE(enthalpy))
+      conductivity = 10.0_pr
+       ! + conductivity_der_solid*temperature(enthalpy) + &
+       !  (conductivity_fusion + (conductivity_der_liquid - conductivity_der_solid)*(temperature(enthalpy) - 1.0_pr)) &
+       !  *liquid_fraction(enthalpy)
     END FUNCTION conductivity
 
-    FUNCTION capacity (temperature_var, enthalpy)
+    FUNCTION capacity (enthalpy)
       IMPLICIT NONE
-      REAL (pr), INTENT(IN) :: temperature_var(:), enthalpy(:)
-      REAL (pr) :: capacity(SIZE(temperature_var))
-      capacity = 1.0_pr + capacity_der_solid*temperature_var + &
-        (capacity_fusion + (capacity_der_liquid - capacity_der_solid)*(temperature_var - 1.0_pr)) &
-        *liquid_fraction(enthalpy)
+      REAL (pr), INTENT(IN) :: enthalpy(:)
+      REAL (pr) :: capacity(SIZE(enthalpy))
+      capacity = 1.0_pr
+      ! + capacity_der_solid*temperature(enthalpy) + &
+      !   (capacity_fusion + (capacity_der_liquid - capacity_der_solid)*(temperature(enthalpy) - 1.0_pr)) &
+      !   *liquid_fraction(enthalpy)
     END FUNCTION capacity
 
     ! Okay I spend some hours to create some easier way to implement this functions and didn't find anything
@@ -743,52 +731,52 @@ CONTAINS
     END FUNCTION temperature_derivative
 
   !T\frac{dh_2}{h_2}-\frac{dh_1}{h_2}+\frac{2*h*dh_2+2*h_1*dh_1+2*h_2*dh}{T+2h_1}
-    ! FUNCTION linearized_temperature (enthalpy, enthalpy_prev)
-    !   IMPLICIT NONE
-    !   REAL (pr), INTENT(IN) :: enthalpy(:), enthalpy_prev(:)
-    !   REAL (pr) :: linearized_temperature(SIZE(enthalpy))
-    !   REAL (pr) :: dh2(SIZE(enthalpy)), dh1(SIZE(enthalpy)), h1(SIZE(enthalpy)), h2(SIZE(enthalpy))
-    !
-    !   h1 = 1.0_pr + (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev)
-    !   h2 = capacity_der_solid*(1.0_pr - liquid_fraction(enthalpy_prev)) + capacity_der_liquid*liquid_fraction(enthalpy_prev)
-    !   dh1= (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev, .TRUE.)
-    !   dh2= (capacity_der_liquid-capacity_der_solid)*liquid_fraction(enthalpy_prev, .TRUE.)
-    !   linearized_temperature = (-temperature(enthalpy_prev)*dh2/h2 - dh1/h2 + &
-    !     (enthalpy_fusion(enthalpy_prev)*dh2 + h1*dh1 + h2*enthalpy_fusion(enthalpy_prev, .TRUE.)))/ &
-    !     (temperature(enthalpy_prev)+h1)
-    ! END FUNCTION linearized_temperature
+    FUNCTION linearized_temperature (enthalpy, enthalpy_prev)
+      IMPLICIT NONE
+      REAL (pr), INTENT(IN) :: enthalpy(:), enthalpy_prev(:)
+      REAL (pr) :: linearized_temperature(SIZE(enthalpy))
+      REAL (pr) :: dh2(SIZE(enthalpy)), dh1(SIZE(enthalpy)), h1(SIZE(enthalpy)), h2(SIZE(enthalpy))
 
-    ! FUNCTION linearized_temperature_diag (enthalpy_prev)
-    !   IMPLICIT NONE
-    !   REAL (pr), INTENT(IN) :: enthalpy_prev(:)
-    !   REAL (pr) :: linearized_temperature_diag(SIZE(enthalpy_prev))
-    !   REAL (pr) :: dh2(SIZE(enthalpy_prev)), dh1(SIZE(enthalpy_prev)), h1(SIZE(enthalpy_prev)), h2(SIZE(enthalpy_prev))
-    !   h1 = 1.0_pr + (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev)
-    !   h2 = capacity_der_solid*(1.0_pr - liquid_fraction(enthalpy_prev)) + capacity_der_liquid*liquid_fraction(enthalpy_prev)
-    !   dh1= (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev, .TRUE.)
-    !   dh2= (capacity_der_liquid-capacity_der_solid)*liquid_fraction(enthalpy_prev, .TRUE.)
-    !
-    !   linearized_temperature_diag = enthalpy_fusion(enthalpy_prev, .TRUE.)* &
-    !     (-temperature(enthalpy_prev)*dh2/h2 - dh1/h2 + &
-    !     (enthalpy_fusion(enthalpy_prev)*dh2 + h1*dh1 + h2*enthalpy_fusion(enthalpy_prev, .TRUE.)))/ &
-    !     (temperature(enthalpy_prev)+h1)
-    ! END FUNCTION linearized_temperature_diag
-    !
-    ! FUNCTION linearized_temperature_rhs (enthalpy_prev)
-    !   IMPLICIT NONE
-    !   REAL (pr), INTENT(IN) :: enthalpy_prev(:)
-    !   REAL (pr) :: linearized_temperature_rhs(SIZE(enthalpy_prev))
-    !   REAL (pr) :: dh2(SIZE(enthalpy_prev)), dh1(SIZE(enthalpy_prev)), h1(SIZE(enthalpy_prev)), h2(SIZE(enthalpy_prev))
-    !   h1 = 1.0_pr + (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev)
-    !   h2 = capacity_der_solid*(1.0_pr - liquid_fraction(enthalpy_prev)) + capacity_der_liquid*liquid_fraction(enthalpy_prev)
-    !   dh1= (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev, .TRUE.)
-    !   dh2= (capacity_der_liquid-capacity_der_solid)*liquid_fraction(enthalpy_prev, .TRUE.)
-    !
-    !   linearized_temperature_rhs = - temperature(enthalpy_prev) + enthalpy_fusion(enthalpy_prev)* &
-    !     (-temperature(enthalpy_prev)*dh2/h2 - dh1/h2 + &
-    !     (enthalpy_fusion(enthalpy_prev)*dh2 + h1*dh1 + h2*enthalpy_fusion(enthalpy_prev, .TRUE.)))/ &
-    !     (temperature(enthalpy_prev)+h1)
-    ! END FUNCTION linearized_temperature_rhs
+      h1 = 1.0_pr + (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev)
+      h2 = capacity_der_solid*(1.0_pr - liquid_fraction(enthalpy_prev)) + capacity_der_liquid*liquid_fraction(enthalpy_prev)
+      dh1= (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev, .TRUE.)
+      dh2= (capacity_der_liquid-capacity_der_solid)*liquid_fraction(enthalpy_prev, .TRUE.)
+      linearized_temperature = (-temperature(enthalpy_prev)*dh2/h2 - dh1/h2 + &
+        (enthalpy_fusion(enthalpy_prev)*dh2 + h1*dh1 + h2*enthalpy_fusion(enthalpy_prev, .TRUE.)))/ &
+        (temperature(enthalpy_prev)+h1)
+    END FUNCTION linearized_temperature
+
+    FUNCTION linearized_temperature_diag (enthalpy_prev)
+      IMPLICIT NONE
+      REAL (pr), INTENT(IN) :: enthalpy_prev(:)
+      REAL (pr) :: linearized_temperature_diag(SIZE(enthalpy_prev))
+      REAL (pr) :: dh2(SIZE(enthalpy_prev)), dh1(SIZE(enthalpy_prev)), h1(SIZE(enthalpy_prev)), h2(SIZE(enthalpy_prev))
+      h1 = 1.0_pr + (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev)
+      h2 = capacity_der_solid*(1.0_pr - liquid_fraction(enthalpy_prev)) + capacity_der_liquid*liquid_fraction(enthalpy_prev)
+      dh1= (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev, .TRUE.)
+      dh2= (capacity_der_liquid-capacity_der_solid)*liquid_fraction(enthalpy_prev, .TRUE.)
+
+      linearized_temperature_diag = enthalpy_fusion(enthalpy_prev, .TRUE.)* &
+        (-temperature(enthalpy_prev)*dh2/h2 - dh1/h2 + &
+        (enthalpy_fusion(enthalpy_prev)*dh2 + h1*dh1 + h2*enthalpy_fusion(enthalpy_prev, .TRUE.)))/ &
+        (temperature(enthalpy_prev)+h1)
+    END FUNCTION linearized_temperature_diag
+
+    FUNCTION linearized_temperature_rhs (enthalpy_prev)
+      IMPLICIT NONE
+      REAL (pr), INTENT(IN) :: enthalpy_prev(:)
+      REAL (pr) :: linearized_temperature_rhs(SIZE(enthalpy_prev))
+      REAL (pr) :: dh2(SIZE(enthalpy_prev)), dh1(SIZE(enthalpy_prev)), h1(SIZE(enthalpy_prev)), h2(SIZE(enthalpy_prev))
+      h1 = 1.0_pr + (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev)
+      h2 = capacity_der_solid*(1.0_pr - liquid_fraction(enthalpy_prev)) + capacity_der_liquid*liquid_fraction(enthalpy_prev)
+      dh1= (capacity_der_solid - capacity_der_liquid + capacity_fusion)*liquid_fraction(enthalpy_prev, .TRUE.)
+      dh2= (capacity_der_liquid-capacity_der_solid)*liquid_fraction(enthalpy_prev, .TRUE.)
+
+      linearized_temperature_rhs = - temperature(enthalpy_prev) + enthalpy_fusion(enthalpy_prev)* &
+        (-temperature(enthalpy_prev)*dh2/h2 - dh1/h2 + &
+        (enthalpy_fusion(enthalpy_prev)*dh2 + h1*dh1 + h2*enthalpy_fusion(enthalpy_prev, .TRUE.)))/ &
+        (temperature(enthalpy_prev)+h1)
+    END FUNCTION linearized_temperature_rhs
 
     ! is_D = 0 for RHS, = 1 for DRHS and DRHS_diag
     FUNCTION enthalpy_fusion (enthalpy, is_D)
@@ -803,16 +791,16 @@ CONTAINS
       END IF
     END FUNCTION enthalpy_fusion
 
-  ! SUBROUTINE my_bc (Lu, u, du, T, nloc, iloc)
-  !   IMPLICIT NONE
-  !   REAL (pr), INTENT(IN) :: u(:), du(:,:), T(:)
-  !   INTEGER, INTENT(IN) :: nloc, iloc(:)
-  !   REAL (pr), INTENT(OUT) :: Lu(:)
-  !   REAL (pr), DIMENSION(nwlt) :: porosity_term_
-  !   porosity_term_ = porosity_term() * (1.0_pr - initial_porosity)
-  !   Lu(iloc(1:nloc)) = convective_transfer * u(iloc(1:nloc)) + &
-  !       porosity_term_(iloc(1:nloc)) * conductivity(T(iloc(1:nloc)),u(iloc(1:nloc))) / capacity(T(iloc(1:nloc)),u(iloc(1:nloc))) * du(iloc(1:nloc), dim)
-  ! END SUBROUTINE my_bc
+  SUBROUTINE my_bc (Lu, u, du, T, nloc, iloc)
+    IMPLICIT NONE
+    REAL (pr), INTENT(IN) :: u(:), du(:,:), T(:)
+    INTEGER, INTENT(IN) :: nloc, iloc(:)
+    REAL (pr), INTENT(OUT) :: Lu(:)
+    REAL (pr), DIMENSION(nwlt) :: porosity_term_
+    porosity_term_ = porosity_term() * (1.0_pr - initial_porosity)
+    Lu(iloc(1:nloc)) = convective_transfer * u(iloc(1:nloc)) + &
+        porosity_term_(iloc(1:nloc)) * conductivity(u(iloc(1:nloc))) / capacity(u(iloc(1:nloc))) * du(iloc(1:nloc), dim)
+  END SUBROUTINE my_bc
 
   FUNCTION Spline_cubic (r_p, l_p, fr_p, fl_p, dfr_p, dfl_p)
     IMPLICIT NONE
