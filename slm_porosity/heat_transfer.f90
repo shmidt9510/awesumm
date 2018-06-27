@@ -38,7 +38,7 @@ MODULE user_case
   REAL (pr) :: absorptivity
   REAL (pr) :: scanning_speed
   REAL (pr) :: initial_porosity
-  REAL (pr) :: initial_enthalpy
+  REAL (pr) :: initial_temp
   REAL (pr) :: smoothing_width      ! width of spline in terms of fusion_delta
   REAL (pr) :: eps_zero
   REAL (pr) :: Dconductivity_solid
@@ -170,11 +170,8 @@ CONTAINS
     IF (dim.EQ.2) x0(dim) = xyzlimits(2,dim)
     IF ( IC_restart_mode.EQ.0 ) THEN
        DO i = 1, nlocal
-          u(i,n_var_enthalpy) = initial_enthalpy*EXP(-SUM((x(i,:)-x0)**2))*EXP(-(x(i,dim)-x0(dim))**2*power*absorptivity)
+          u(i,n_var_temp) = initial_temp*EXP(-SUM((x(i,:)-x0)**2))*EXP(-(x(i,dim)-x0(dim))**2*power*absorptivity)
        END DO
-       !WHERE (x(:,dim).NE.x0(dim))
-       !   u(:,n_var_enthalpy) = 0
-       !END WHERE
     END IF
 
   END SUBROUTINE user_initial_conditions
@@ -457,11 +454,40 @@ CONTAINS
   !
   ! startup_flag - 0 when adapting to IC,then 1 inmain integration loop
   !
-  SUBROUTINE user_stats ( u ,j_mn, startup_flag)
+  SUBROUTINE user_stats (u, j_mn, startup_flag)
     IMPLICIT NONE
-    INTEGER , INTENT (IN) :: startup_flag
-    INTEGER , INTENT (IN) :: j_mn
+    INTEGER , INTENT (IN) :: startup_flag, j_mn
+    INTEGER :: file
     REAL (pr), DIMENSION (nwlt,1:n_var), INTENT (IN) :: u
+    REAL (pr) :: volume                               ! volume of a melting pool
+    REAL (pr), DIMENSION (1) :: width, length, depth  ! dimensions of the melting pool
+    CHARACTER(LEN = 16) :: file_name
+
+    file = 5
+    file_name = 'melting_pool.txt'
+    IF (startup_flag.EQ.0) THEN
+      OPEN(file, file=file_name, status='replace', action='write')
+      IF (dim.EQ.3) THEN
+        WRITE(file, *) '# time      volume      length      width       depth'
+      ELSE
+        WRITE(file, *) '# time      volume      length      depth'
+      END IF
+    ELSE
+      volume = SUM(u(:,n_var_lfrac)*dA(:))
+      length = x(MAXLOC(u(:,n_var_lfrac)*(x(:,1) - xyzlimits(1,1))), 1) - &
+        x(MAXLOC(ABS((u(:,n_var_lfrac)*(x(:,1) - xyzlimits(2,1))))), 1)
+      width = 2*x(MAXLOC((u(:,n_var_lfrac)*x(:,2))), 2)
+      depth = xyzlimits(2,dim) - x(MAXLOC(ABS((u(:,n_var_lfrac)*(x(:,dim) - xyzlimits(2,dim))))), dim)
+      OPEN(file, file=file_name, status='old', position='append', action='write')
+      IF (dim.EQ.3) THEN
+        WRITE(file, 100) t, volume, length, width, depth
+    100 FORMAT(ES10.3, 2x, ES10.3, 2x, ES10.3, 2x, ES10.3, 2x, ES10.3)
+      ELSE
+        WRITE(file, 101) t, volume, length, depth
+    101 FORMAT(ES10.3, 2x, ES10.3, 2x, ES10.3, 2x, ES10.3)
+      END IF
+    END IF
+    CLOSE(file)
   END SUBROUTINE user_stats
 
 
@@ -499,7 +525,7 @@ CONTAINS
     call input_real ('absorptivity', absorptivity, 'stop')
     call input_real ('scanning_speed', scanning_speed, 'stop')
     call input_real ('initial_porosity', initial_porosity, 'stop')
-    call input_real ('initial_enthalpy', initial_enthalpy, 'stop')
+    call input_real ('initial_temp', initial_temp, 'stop')
     call input_real ('smoothing_width', smoothing_width, 'stop')
 
     call input_real ('Dconductivity_liquid', Dconductivity_liquid, 'stop')
@@ -518,12 +544,12 @@ CONTAINS
 
     enthalpy_S = 0.0_pr
     enthalpy_L = 1.0_pr
-    tmp = enthalpy((/ 1.0_pr - fusion_delta/2 /), (/ liquid_fraction((/ enthalpy_S /)) /))
+    tmp = enthalpy((/ 1.0_pr - fusion_delta/2 /), liquid_fraction((/ enthalpy_S /)))
     enthalpy_S = tmp(1)
-    tmp = enthalpy((/ 1.0_pr + fusion_delta/2 /), (/ liquid_fraction((/ enthalpy_L /)) /))
+    tmp = enthalpy((/ 1.0_pr + fusion_delta/2 /), liquid_fraction((/ enthalpy_L /)))
     enthalpy_L = tmp(1)
-    PRINT *, 'enthalpy_S', enthalpy_S
-    PRINT *, 'enthalpy_L', enthalpy_L
+    PRINT *, 'enthalpy_S = ', enthalpy_S
+    PRINT *, 'enthalpy_L = ', enthalpy_L
   END SUBROUTINE user_read_input
 
 
@@ -542,6 +568,7 @@ CONTAINS
     INTEGER , INTENT(IN) :: flag ! 0- called during adaption to IC, 1 called during main integration loop
     IF (.NOT.flag) THEN
        u(:,n_var_porosity) = initial_porosity
+       u(:,n_var_enthalpy) = enthalpy(u(:,n_var_temp), lf_from_temperature(u(:,n_var_temp)))
     END IF
     u(:,n_var_temp) = temperature(u(:,n_var_enthalpy))
     u(:,n_var_lfrac) = liquid_fraction(u(:,n_var_enthalpy))
@@ -549,7 +576,16 @@ CONTAINS
     u(:,n_var_pressure) = 0.0_pr
   END SUBROUTINE user_additional_vars
 
+  FUNCTION lf_from_temperature(temperature)
+    IMPLICIT NONE
+    REAL (pr), INTENT(IN) :: temperature(:)
+    REAL (pr) :: lf_from_temperature(SIZE(temperature))
+    REAL (pr) :: lf_der, temperature_S
 
+    lf_der = 1.0_pr/(fusion_delta)
+    temperature_S = 1.0_pr - fusion_delta/2
+    lf_from_temperature = 1.0_pr/(1.0_pr + EXP(-4*lf_der*(temperature - 1.0_pr)))
+  END FUNCTION lf_from_temperature
   !
   ! calculate any additional scalar variables
   !
@@ -778,21 +814,21 @@ CONTAINS
       Dcapacity_solid, Dcapacity_liquid, capacity_fusion, is_D)
   END FUNCTION capacity
 
-  ! is_D = 1 for partial derivative over \phi and 2 for derivative over T
-  FUNCTION three_parameter_model (T, phi, Dsolid, Dliquid, fusion_jump, is_D)
+  ! is_D == 1 for partial derivative over \phi and 2 for derivative over T
+  FUNCTION three_parameter_model (temperature, liquid_fraction, Dsolid, Dliquid, fusion_jump, is_D)
     IMPLICIT NONE
-    REAL (pr), INTENT(IN) ::  T(:), phi(:)
-    REAL (pr) :: three_parameter_model(SIZE(T))
+    REAL (pr), INTENT(IN) :: temperature(:), liquid_fraction(:)
+    REAL (pr) :: three_parameter_model(SIZE(temperature))
     REAL (pr) :: Dsolid, Dliquid, fusion_jump
     INTEGER, OPTIONAL, INTENT(IN) :: is_D
 
     IF (.NOT.PRESENT(is_D)) THEN
-      three_parameter_model = 1.0_pr + Dsolid*T + &
-        (fusion_jump + (Dliquid - Dsolid)*(T - 1.0_pr))*phi
-    ELSEIF (is_D .EQ. 1) THEN
-      three_parameter_model = fusion_jump + (Dliquid - Dsolid)*(T - 1.0_pr)
-    ELSEIF (is_D .EQ. 2) THEN
-      three_parameter_model = Dsolid + (Dliquid - Dsolid)*phi
+      three_parameter_model = 1.0_pr + Dsolid*temperature + &
+        (fusion_jump + (Dliquid - Dsolid)*(temperature - 1.0_pr))*liquid_fraction
+    ELSEIF (is_D.EQ.1) THEN
+      three_parameter_model = fusion_jump + (Dliquid - Dsolid)*(temperature - 1.0_pr)
+    ELSEIF (is_D.EQ.2) THEN
+      three_parameter_model = Dsolid + (Dliquid - Dsolid)*liquid_fraction
     END IF
   END FUNCTION three_parameter_model
 
@@ -834,7 +870,7 @@ CONTAINS
     END WHERE
   END FUNCTION Dtemperature
 
-  ! is_D = 0 for RHS, = 1 for DRHS and DRHS_diag
+  ! is_D == 0 for RHS, == 1 for DRHS and DRHS_diag
   FUNCTION enthalpy_fusion (enthalpy, is_D)
     IMPLICIT NONE
     REAL (pr),         INTENT(IN) :: enthalpy(:)
@@ -890,7 +926,7 @@ CONTAINS
     IMPLICIT NONE
     REAL (pr), INTENT(IN) :: temperature(:)
     REAL (pr) :: F_heat_flux(SIZE(temperature))
-    LOGICAl, OPTIONAL, INTENT(IN) :: is_D
+    LOGICAL, OPTIONAL, INTENT(IN) :: is_D
 
     IF (.NOT.PRESENT(is_D).OR.(.NOT.is_D)) THEN
       F_heat_flux = convective_transfer*T + emissivity*radiative_transfer*T**(dim+1)
