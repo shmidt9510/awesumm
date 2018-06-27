@@ -169,7 +169,7 @@ absorptivity = 0.3
 emissivity = 0.7
 
 # initial conditions
-initial_enthalpy = 2.0
+initial_temp = 2.0
 x0 = 0, 0, 0                    #  starting point of the center of the laser beam
 
 # numerics-specific parameters
